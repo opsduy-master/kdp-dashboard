@@ -1,4 +1,4 @@
-import { parseKdpWorkbook } from './kdp-parser.js'
+import { guessBookForCampaign, parseAdsWorkbook, parseKdpWorkbook } from './kdp-parser.js'
 
 const $ = (sel) => document.querySelector(sel)
 const TOKEN_KEY = 'kdp-dashboard-token'
@@ -113,6 +113,43 @@ function sumSales(rows) {
   return out
 }
 
+// ---------- Werbung ----------
+function filteredAds({ from = rangeStart(), to = null } = {}) {
+  return (state.data.ads || []).filter((r) => (!from || r.date >= from) && (!to || r.date <= to))
+}
+
+const AD_FIELDS = ['impressions', 'clicks', 'spend', 'sales', 'orders', 'units', 'kenp', 'kenpRoyalty']
+function sumAds(rows) {
+  const out = Object.fromEntries(AD_FIELDS.map((f) => [f, 0]))
+  out.currency = rows[0]?.currency || 'EUR'
+  for (const r of rows) for (const f of AD_FIELDS) out[f] += r[f] || 0
+  return out
+}
+
+const pct = (v) => (v == null || !Number.isFinite(v) ? '–' : `${nf1.format(v * 100)} %`)
+const acos = (a) => (a.sales > 0 ? a.spend / a.sales : null)
+const acosText = (a) => (a.sales > 0 ? pct(a.spend / a.sales) : a.spend > 0 ? '<span class="muted">kein Umsatz</span>' : '–')
+const ctr = (a) => (a.impressions > 0 ? a.clicks / a.impressions : null)
+const cpc = (a) => (a.clicks > 0 ? a.spend / a.clicks : null)
+
+const bookName = (b) => b.label || latestOf(b.asin)?.title || b.asin
+function campaignGuess(campaign) {
+  return guessBookForCampaign(campaign, state.data.books.map((b) => ({ asin: b.asin, name: `${b.label || ''} ${latestOf(b.asin)?.title || ''}` })))
+}
+
+/** Werbedaten je Buch – nur bestätigte Kampagnen-Zuordnungen zählen. */
+function adsByBook(rows = filteredAds()) {
+  const map = state.data.adsMap || {}
+  const out = new Map()
+  for (const r of rows) {
+    const asin = map[r.campaign]
+    if (!asin) continue
+    if (!out.has(asin)) out.set(asin, [])
+    out.get(asin).push(r)
+  }
+  return out
+}
+
 function royaltyText(royalty) {
   const entries = Object.entries(royalty).filter(([, v]) => Math.abs(v) > 0.004)
   if (!entries.length) return { main: money(0), rest: '' }
@@ -142,12 +179,13 @@ function render() {
   renderKpis()
   renderTable()
   renderUnmapped()
+  renderAds()
   renderCharts()
   $('#empty').hidden = books.length > 0
   const d = state.data.drive || {}
   $('#footer-info').textContent = fetchingText() + (d.configured
-    ? ` Verkäufe: automatisch aus Google Drive${d.importedAt ? ` (zuletzt ${d.name}, ${rel(d.importedAt)})` : ''}.`
-    : ' Verkäufe stammen aus deinen hochgeladenen KDP-Berichten.')
+    ? ` Verkäufe und Werbung: automatisch aus Google Drive${d.sales?.importedAt ? ` (KDP-Bericht ${rel(d.sales.importedAt)} importiert)` : ''}.`
+    : ' Verkäufe und Werbung stammen aus deinen hochgeladenen Berichten.')
   $('#books-table').hidden = books.length === 0
 }
 
@@ -181,12 +219,28 @@ function renderKpis() {
   const periodLabel = state.days ? `letzte ${state.days === 365 ? '12 Monate' : state.days + ' Tage'}` : 'gesamt'
   const vsPrev = prev ? ' ggü. Vorperiode' : ''
 
+  const hasAds = (state.data.ads || []).length > 0
+  const ads = sumAds(filteredAds())
+  const prevAds = prev ? sumAds(filteredAds({ from: isoDay(Date.now() - (2 * state.days - 1) * DAY), to: isoDay(Date.now() - state.days * DAY) })) : null
+  const adTiles = !hasAds ? [] : [
+    {
+      label: `Werbekosten · ${periodLabel}`, value: money(ads.spend, ads.currency),
+      sub: [`ACOS ${acosText(ads)} · ${fmtNum(ads.clicks)} Klicks · ${fmtNum(ads.orders)} Bestellungen`,
+        prevAds ? deltaHtml(ads.spend - prevAds.spend, { goodWhenNegative: true, fmt: (v) => money(v, ads.currency) }) + vsPrev : ''].filter(Boolean).join('<br>'),
+    },
+    {
+      label: `Ergebnis nach Werbung · ${periodLabel}`, value: money((cur.royalty.EUR || 0) - (ads.currency === 'EUR' ? ads.spend : 0)),
+      sub: 'Tantiemen (EUR) minus Werbekosten',
+    },
+  ]
+
   const tiles = [
     { label: `Verkaufte Einheiten · ${periodLabel}`, value: fmtNum(cur.units), sub: prev ? deltaHtml(cur.units - prev.units) + vsPrev : '' },
     {
       label: `Tantiemen · ${periodLabel}`, value: rt.main,
       sub: [prev && cur.royalty.EUR != null ? deltaHtml((cur.royalty.EUR || 0) - prevEur, { fmt: (v) => money(v) }) + vsPrev : '', rt.rest && `+ ${rt.rest}`].filter(Boolean).join('<br>'),
     },
+    ...adTiles,
     { label: `KENP gelesen · ${periodLabel}`, value: fmtNum(cur.kenp), sub: prev ? deltaHtml(cur.kenp - prev.kenp) + vsPrev : '' },
     {
       label: 'Rezensionen gesamt', value: fmtNum(totalReviews),
@@ -218,7 +272,9 @@ function renderTable() {
     salesByBook.get(asin).push(r)
   }
 
+  const adsBook = adsByBook()
   $('#books-table tbody').innerHTML = books.map((b, i) => {
+    const a = adsBook.has(b.asin) ? sumAds(adsBook.get(b.asin)) : null
     const l = latestOf(b.asin) || {}
     const st = status[b.asin] || {}
     const d24 = snapshotBefore(b.asin, 20 * 3600 * 1000)
@@ -242,6 +298,8 @@ function renderTable() {
       <td class="num">${fmtNum(s.units)}</td>
       <td class="num">${fmtNum(s.kenp)}</td>
       <td class="num">${rt.main}${rt.rest ? `<br><span class="muted small">+ ${rt.rest}</span>` : ''}</td>
+      <td class="num">${a ? money(a.spend, a.currency) : '–'}</td>
+      <td class="num">${a ? acosText(a) : '–'}</td>
       <td><span class="small">${rel(st.lastSuccess)}</span>${st.lastError ? `<br><span class="status-err" title="${esc(st.lastError)}">⚠ ${esc(shortError(st.lastError))}</span>` : ''}${st.queued ? '<br><span class="muted small">⏳ wird im Hintergrund erneut versucht</span>' : ''}</td>
       <td><button class="btn icon" data-edit="${b.asin}" title="Bearbeiten" aria-label="Bearbeiten">✎</button><button class="btn icon" data-del="${b.asin}" title="Entfernen" aria-label="Entfernen">✕</button></td>
     </tr>`
@@ -268,6 +326,85 @@ function renderUnmapped() {
       <select data-map-select="${esc(g.id)}">${opts}</select>
       <button class="btn" data-map="${esc(g.id)}">Zuordnen</button></li>`).join('')}</ul></div>`
 }
+
+function renderAds() {
+  const all = state.data.ads || []
+  $('#ads-card').hidden = all.length === 0
+  if (!all.length) return
+  const rows = filteredAds()
+  const dates = all.map((r) => r.date)
+  $('#ads-sub').textContent = `Daten vom ${new Date(dates[0]).toLocaleDateString('de-DE')} bis ${new Date(dates[dates.length - 1]).toLocaleDateString('de-DE')} · Umsatz und Bestellungen laut Amazon Ads (14 Tage nach Klick)`
+
+  const map = state.data.adsMap || {}
+  const opts = (sel) => `<option value="">– nicht zugeordnet –</option>` +
+    state.data.books.map((b) => `<option value="${b.asin}" ${b.asin === sel ? 'selected' : ''}>${esc(bookName(b))}</option>`).join('')
+  const byCampaign = new Map()
+  for (const r of rows) {
+    if (!byCampaign.has(r.campaign)) byCampaign.set(r.campaign, [])
+    byCampaign.get(r.campaign).push(r)
+  }
+  // Kampagnen ohne Daten im Zeitraum trotzdem zeigen, damit sie zugeordnet werden können
+  for (const r of all) if (!byCampaign.has(r.campaign)) byCampaign.set(r.campaign, [])
+  const campaigns = [...byCampaign.entries()].map(([name, rs]) => ({ name, a: sumAds(rs) }))
+    .sort((x, y) => y.a.spend - x.a.spend || y.a.impressions - x.a.impressions || x.name.localeCompare(y.name))
+
+  $('#ads-campaigns tbody').innerHTML = campaigns.map(({ name, a }) => {
+    const mapped = map[name]
+    const guess = mapped ? null : campaignGuess(name)
+    const bookCell = `<div class="camp-book"><select data-camp="${esc(name)}" aria-label="Buch für ${esc(name)}">${opts(mapped || guess)}</select>${
+      guess ? `<button class="btn small-btn" data-camp-ok="${esc(name)}" title="Vorgeschlagene Zuordnung speichern">✓ Übernehmen</button>` : ''}</div>`
+    return `<tr>
+      <td>${esc(name)}</td>
+      <td>${bookCell}</td>
+      <td class="num">${fmtNum(a.impressions)}</td>
+      <td class="num">${fmtNum(a.clicks)}</td>
+      <td class="num">${pct(ctr(a))}</td>
+      <td class="num">${cpc(a) != null ? money(cpc(a), a.currency) : '–'}</td>
+      <td class="num">${money(a.spend, a.currency)}</td>
+      <td class="num">${money(a.sales, a.currency)}</td>
+      <td class="num">${acosText(a)}</td>
+      <td class="num">${fmtNum(a.orders)}</td>
+    </tr>`
+  }).join('')
+
+  const byTarget = new Map()
+  for (const r of rows) {
+    const k = [r.campaign, r.targeting, r.matchType].join('|')
+    if (!byTarget.has(k)) byTarget.set(k, { campaign: r.campaign, targeting: r.targeting, matchType: r.matchType, rows: [] })
+    byTarget.get(k).rows.push(r)
+  }
+  const targets = [...byTarget.values()].map((t) => ({ ...t, a: sumAds(t.rows) }))
+    .sort((x, y) => y.a.spend - x.a.spend || y.a.clicks - x.a.clicks || y.a.impressions - x.a.impressions)
+    .slice(0, 15)
+  $('#ads-targets tbody').innerHTML = targets.length ? targets.map(({ campaign, targeting, matchType, a }) => `<tr>
+      <td><strong>${esc(targeting)}</strong></td>
+      <td><span class="badge">${esc(matchType)}</span></td>
+      <td class="small">${esc(campaign)}</td>
+      <td class="num">${fmtNum(a.impressions)}</td>
+      <td class="num">${fmtNum(a.clicks)}</td>
+      <td class="num">${pct(ctr(a))}</td>
+      <td class="num">${cpc(a) != null ? money(cpc(a), a.currency) : '–'}</td>
+      <td class="num">${money(a.spend, a.currency)}</td>
+      <td class="num">${money(a.sales, a.currency)}</td>
+      <td class="num">${acosText(a)}</td>
+    </tr>`).join('') : '<tr><td colspan="10" class="muted">Keine Werbedaten im gewählten Zeitraum.</td></tr>'
+}
+
+async function saveCampaign(campaign, asin) {
+  await api('ads-map', { method: 'POST', body: JSON.stringify({ campaign, asin }) })
+  await load()
+}
+
+$('#ads-campaigns tbody').addEventListener('change', (e) => {
+  const sel = e.target.closest('select[data-camp]')
+  if (sel) saveCampaign(sel.dataset.camp, sel.value)
+})
+$('#ads-campaigns tbody').addEventListener('click', (e) => {
+  const ok = e.target.closest('[data-camp-ok]')
+  if (!ok) return
+  const sel = ok.parentElement.querySelector('select[data-camp]')
+  saveCampaign(ok.dataset.campOk, sel.value)
+})
 
 // ---------- Charts ----------
 function chartDefaults() {
@@ -299,8 +436,7 @@ function setChart(id, config) {
   state.charts[id] = new Chart(document.getElementById(id), config)
 }
 
-function dailySeries(field) {
-  const rows = filteredSales()
+function dailySeries(field, rows = filteredSales()) {
   const byDay = new Map()
   for (const r of rows) byDay.set(r.date, (byDay.get(r.date) || 0) + r[field])
   let start = rangeStart()
@@ -313,18 +449,19 @@ function dailySeries(field) {
   return out
 }
 
-function barChart(id, field, label, subId) {
-  const data = dailySeries(field)
+function barChart(id, field, label, subId, { rows, fmt = fmtNum } = {}) {
+  const data = dailySeries(field, rows)
   const total = data.reduce((s, p) => s + p.y, 0)
-  $(`#${subId}`).textContent = state.data.sales.length ? `Summe ${fmtNum(total)}` : 'Noch kein KDP-Report importiert'
+  if (subId) $(`#${subId}`).textContent = state.data.sales.length ? `Summe ${fmtNum(total)}` : 'Noch kein KDP-Report importiert'
   setChart(id, {
     type: 'bar',
     data: { datasets: [{ label, data, backgroundColor: cssVar('--s1'), borderRadius: { topLeft: 4, topRight: 4 }, borderSkipped: 'bottom', maxBarThickness: 22, categoryPercentage: 0.9, barPercentage: 0.9 }] },
     options: baseOptions({
       scales: {
         x: { type: 'time', time: { unit: data.length > 120 ? 'month' : data.length > 21 ? 'week' : 'day', tooltipFormat: 'dd.MM.yyyy', displayFormats: { day: 'dd.MM.', week: 'dd.MM.', month: 'MMM yy' } }, grid: { display: false }, border: { color: cssVar('--axis') } },
-        y: { beginAtZero: true, ticks: { precision: 0 }, border: { display: false } },
+        y: { beginAtZero: true, ticks: fmt === fmtNum ? { precision: 0 } : { callback: (v) => fmt(v) }, border: { display: false } },
       },
+      plugins: { ...baseOptions().plugins, tooltip: { ...baseOptions().plugins.tooltip, callbacks: { label: (c) => ` ${label}: ${fmt(c.parsed.y)}` } } },
     }),
   })
 }
@@ -379,6 +516,7 @@ function renderCharts() {
   barChart('chart-kenp', 'kenp', 'KENP-Seiten', 'kenp-sub')
   lineChart('chart-bsr', 'bsr', { reverseLog: true })
   lineChart('chart-reviews', 'reviews')
+  if ((state.data.ads || []).length) barChart('chart-ads', 'spend', 'Werbekosten', null, { rows: filteredAds(), fmt: (v) => money(v) })
 }
 
 // ---------- Laden ----------
@@ -399,14 +537,19 @@ function progress(text, kind = 'warn') {
 
 function driveResultText(r) {
   if (!r?.configured) return ''
-  if (r.error) return `⚠ ${r.error}`
-  if (r.imported) return `✓ KDP-Bericht „${r.name}“ aus Google Drive importiert (${fmtNum(r.added)} neu, ${fmtNum(r.replaced)} aktualisiert).`
-  if (r.unchanged) return 'KDP-Bericht in Google Drive unverändert.'
-  return ''
+  if (r.error && !r.sales) return `⚠ ${r.error}`
+  const one = (x, label) => {
+    if (!x) return ''
+    if (x.error) return `⚠ ${label}: ${x.error.replace(/^Google Drive: /, '')}`
+    if (x.imported) return `✓ ${label} „${x.name}“ importiert (${fmtNum(x.added)} neu, ${fmtNum(x.replaced)} aktualisiert).`
+    if (x.unchanged) return `${label} unverändert.`
+    return ''
+  }
+  return [one(r.sales, 'KDP-Bericht'), one(r.ads, 'Werbebericht')].filter(Boolean).join(' ')
 }
 
 async function importDrive({ force = false } = {}) {
-  progress('Prüfe Google Drive auf einen neuen KDP-Bericht …', 'info')
+  progress('Prüfe Google Drive auf neue Berichte …', 'info')
   try {
     return await api(`drive-import${force ? '?force=1' : ''}`, { method: 'POST' })
   } catch (e) {
@@ -522,6 +665,7 @@ $('#add-submit').addEventListener('click', async (e) => {
 
 // Upload
 let pendingRows = null
+let pendingKind = 'sales'
 $('#btn-upload').addEventListener('click', () => {
   pendingRows = null
   $('#form-upload').reset()
@@ -539,8 +683,21 @@ async function handleFile(file) {
     const sheets = wb.SheetNames.map((name) => ({
       name, rows: XLSX.utils.sheet_to_json(wb.Sheets[name], { header: 1, raw: true, defval: '' }),
     }))
+    const ads = parseAdsWorkbook(sheets)
+    if (ads.rows.length) {
+      const dates = ads.rows.map((r) => r.date).sort()
+      const a = sumAds(ads.rows)
+      pendingRows = ads.rows
+      pendingKind = 'ads'
+      $('#upload-preview').innerHTML = `<strong>Werbebericht: ${fmtNum(ads.rows.length)} Datensätze</strong> erkannt
+        (${new Date(dates[0]).toLocaleDateString('de-DE')} – ${new Date(dates[dates.length - 1]).toLocaleDateString('de-DE')})<br>
+        ${fmtNum(new Set(ads.rows.map((r) => r.campaign)).size)} Kampagnen · ${fmtNum(a.clicks)} Klicks · Ausgaben ${money(a.spend, a.currency)} · Umsatz ${money(a.sales, a.currency)}`
+      $('#upload-submit').disabled = false
+      return
+    }
     const { rows, sheetsUsed, skipped } = parseKdpWorkbook(sheets)
-    if (!rows.length) throw new Error('Keine Verkaufsdaten erkannt. Ist das ein KDP-Bericht (Tantiemen/Bestellungen)?')
+    if (!rows.length) throw new Error('Keine Daten erkannt. Ist das ein KDP-Bericht (Tantiemen/Bestellungen) oder ein Sponsored-Products-Bericht?')
+    pendingKind = 'sales'
     const dates = rows.map((r) => r.date).sort()
     const s = sumSales(rows)
     pendingRows = rows
@@ -571,7 +728,7 @@ $('#upload-submit').addEventListener('click', async (e) => {
   try {
     let added = 0, replaced = 0
     for (let i = 0; i < pendingRows.length; i += 3000) {
-      const r = await api('sales', { method: 'POST', body: JSON.stringify({ rows: pendingRows.slice(i, i + 3000) }) })
+      const r = await api(pendingKind, { method: 'POST', body: JSON.stringify({ rows: pendingRows.slice(i, i + 3000) }) })
       added += r.added; replaced += r.replaced
     }
     $('#dlg-upload').close()
@@ -588,9 +745,10 @@ $('#upload-submit').addEventListener('click', async (e) => {
 $('#btn-settings').addEventListener('click', () => {
   const n = state.data.sales.length
   const dates = state.data.sales.map((r) => r.date)
-  $('#settings-info').textContent = n
+  const nAds = (state.data.ads || []).length
+  $('#settings-info').textContent = (n
     ? `${fmtNum(n)} Verkaufsdatensätze gespeichert (${dates[0]} bis ${dates[dates.length - 1]}).`
-    : 'Noch keine Verkaufsdaten importiert.'
+    : 'Noch keine Verkaufsdaten importiert.') + (nAds ? ` ${fmtNum(nAds)} Werbedatensätze gespeichert.` : '')
   $('#fetch-info').textContent = fetchingText().replace(/^Amazon-Abruf: /, '')
   renderDriveInfo()
   $('#diag-asin').innerHTML = state.data.books.map((b) => `<option value="${b.asin}">${esc(b.label || latestOf(b.asin)?.title || b.asin)}</option>`).join('')
@@ -602,10 +760,16 @@ function renderDriveInfo() {
   const d = state.data.drive || {}
   $('#drive-section').hidden = !d.configured
   if (!d.configured) return
+  const line = (x = {}, label, prefix) => [
+    `<strong>${label}:</strong> ` + (x.name
+      ? `${esc(x.name)} (Datei vom ${new Date(x.modifiedTime).toLocaleString('de-DE')}, importiert ${rel(x.importedAt)})`
+      : x.notFound ? `keine <code>${prefix}*.xlsx</code> im Ordner` : 'noch nichts importiert'),
+    x.error ? `<span class="error">⚠ ${esc(x.error)}</span>` : '',
+  ].filter(Boolean).join('<br>')
   $('#drive-info').innerHTML = [
-    d.name ? `Zuletzt importiert: <strong>${esc(d.name)}</strong> (Datei vom ${new Date(d.modifiedTime).toLocaleString('de-DE')}, importiert ${rel(d.importedAt)})` : 'Noch nichts importiert.',
-    d.checkedAt ? `Zuletzt geprüft ${rel(d.checkedAt)}. Wird stündlich und bei „Jetzt aktualisieren“ geprüft.` : '',
-    d.error ? `<span class="error">⚠ ${esc(d.error)}</span>` : '',
+    line(d.sales, 'KDP-Bericht', 'KDP_Dashboard'),
+    line(d.ads, 'Werbebericht', 'Sponsored_Products'),
+    d.sales?.checkedAt ? `<span class="muted">Zuletzt geprüft ${rel(d.sales.checkedAt)}. Wird stündlich und bei „Jetzt aktualisieren“ geprüft.</span>` : '',
   ].filter(Boolean).join('<br>')
 }
 
@@ -614,7 +778,8 @@ $('#btn-drive').addEventListener('click', async () => {
   const r = await importDrive({ force: true })
   await load()
   renderDriveInfo()
-  progress(driveResultText(r), r.error ? 'warn' : 'ok')
+  const msg = driveResultText(r)
+  progress(msg, /⚠/.test(msg) ? 'warn' : 'ok')
   $('#btn-drive').disabled = false
 })
 
@@ -654,6 +819,12 @@ $('#btn-diag').addEventListener('click', async () => {
 $('#btn-clear-sales').addEventListener('click', async () => {
   if (!confirm('Wirklich alle importierten Verkaufsdaten löschen? Amazon-Daten (BSR, Bewertungen) bleiben erhalten.')) return
   await api('sales', { method: 'DELETE' })
+  $('#dlg-settings').close()
+  load()
+})
+$('#btn-clear-ads').addEventListener('click', async () => {
+  if (!confirm('Wirklich alle importierten Werbedaten löschen? Die Kampagnen-Zuordnungen bleiben erhalten.')) return
+  await api('ads', { method: 'DELETE' })
   $('#dlg-settings').close()
   load()
 })

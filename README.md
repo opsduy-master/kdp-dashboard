@@ -54,6 +54,18 @@ Bereitstellen** eine neue Version veröffentlichen. Die URL bleibt dabei gleich.
 Meldet das Dashboard „Token stimmt nicht überein“, zeigt es die Länge und das erste Zeichen beider Tokens. So erkennst du, auf welcher
 Seite der falsche Wert steht, ohne dass der Token selbst angezeigt wird.
 
+## Werbung (Amazon Ads / Sponsored Products)
+
+Sponsored-Products-Berichte (z. B. **Targeting-Bericht** oder **Keyword-Bericht** als XLSX) werden genauso eingelesen: automatisch die
+neueste `Sponsored_Products*.xlsx` aus dem Google-Drive-Ordner (dafür Apps Script **Version 3** bereitstellen) oder per **⇪ KDP-Report**.
+
+- Der Bereich **„Werbung“** zeigt Kampagnen und Top-Keywords mit Impressionen, Klicks, CTR, CPC, Ausgaben, 14-Tage-Umsatz und ACOS
+  (Ausgaben ÷ Werbeumsatz) sowie die Werbekosten pro Tag.
+- Die Berichte enthalten keine ASIN. Deshalb wird jede **Kampagne einem Buch zugeordnet**: Das Dashboard schlägt anhand des
+  Kampagnennamens ein Buch vor, mit **✓ Übernehmen** wird die Zuordnung gespeichert. Erst dann erscheinen Werbekosten und ACOS in der
+  Bücher-Tabelle.
+- Die Kennzahl **„Ergebnis nach Werbung“** ist Tantiemen (EUR) minus Werbekosten im gewählten Zeitraum.
+
 ## Wenn Amazon blockiert (HTTP 503 / Captcha)
 
 Die Daten werden von den öffentlichen Produktseiten gelesen. Amazon weist Anfragen aus Rechenzentren (also auch von Netlify/AWS)

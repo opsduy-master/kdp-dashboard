@@ -1,5 +1,5 @@
 /**
- * Liefert dem KDP-Dashboard die neueste KDP_Dashboard-*.xlsx aus dem Google-Drive-Ordner.
+ * Liefert dem KDP-Dashboard die neueste KDP_Dashboard-*.xlsx bzw. Sponsored_Products*.xlsx aus dem Google-Drive-Ordner.
  *
  * Einrichtung (einmalig, siehe README):
  *  1. https://script.google.com → Neues Projekt → diesen Code einfügen.
@@ -8,9 +8,10 @@
  *  4. Web-App-URL und TOKEN in Netlify als DRIVE_SCRIPT_URL und DRIVE_SCRIPT_TOKEN eintragen.
  */
 const FOLDER_ID = '1QqhLbM0RAVXXT2pcFqCNRViYkGVZEeRA'
-const FILE_PREFIX = 'KDP_Dashboard'
+// Erlaubte Dateiarten (Parameter „prefix“), die erste ist der Standard
+const PREFIXES = ['KDP_Dashboard', 'Sponsored_Products']
 const TOKEN = 'HIER-EIN-LANGES-GEHEIMNIS-EINTRAGEN'
-const SCRIPT_VERSION = 2
+const SCRIPT_VERSION = 3
 
 function doGet(e) {
   const params = (e && e.parameter) || {}
@@ -31,17 +32,18 @@ function doGet(e) {
     })
   }
 
+  const prefix = PREFIXES.indexOf(params.prefix) >= 0 ? params.prefix : PREFIXES[0]
   const files = DriveApp.getFolderById(FOLDER_ID).getFiles()
   let latest = null
   while (files.hasNext()) {
     const f = files.next()
     const name = f.getName()
-    if (name.indexOf(FILE_PREFIX) !== 0 || !/\.xlsx$/i.test(name) || f.isTrashed()) continue
+    if (name.indexOf(prefix) !== 0 || !/\.xlsx$/i.test(name) || f.isTrashed()) continue
     if (!latest || f.getLastUpdated() > latest.getLastUpdated()) latest = f
   }
-  if (!latest) return json({ error: `Keine ${FILE_PREFIX}-*.xlsx im Ordner gefunden` })
+  if (!latest) return json({ notFound: true, prefix, scriptVersion: SCRIPT_VERSION, error: `Keine ${prefix}*.xlsx im Ordner gefunden` })
 
-  const meta = { id: latest.getId(), name: latest.getName(), modifiedTime: latest.getLastUpdated().toISOString() }
+  const meta = { id: latest.getId(), name: latest.getName(), modifiedTime: latest.getLastUpdated().toISOString(), prefix, scriptVersion: SCRIPT_VERSION }
   // Unverändert seit dem letzten Import → nur Metadaten zurückgeben
   if (params.since && params.since === meta.modifiedTime && params.id === meta.id) {
     return json(Object.assign({ unchanged: true }, meta))

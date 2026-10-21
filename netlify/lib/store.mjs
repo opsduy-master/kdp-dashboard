@@ -26,3 +26,9 @@ export const saveStatus = (status) => setJSON('status', status)
 
 export const getSales = () => getJSON('sales', [])
 export const saveSales = (rows) => setJSON('sales', rows)
+
+export const getAds = () => getJSON('ads', [])
+export const saveAds = (rows) => setJSON('ads', rows)
+/** Zuordnung Kampagnenname → ASIN */
+export const getAdsMap = () => getJSON('ads-map', {})
+export const saveAdsMap = (map) => setJSON('ads-map', map)

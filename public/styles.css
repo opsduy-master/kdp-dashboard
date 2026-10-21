@@ -113,7 +113,15 @@ input { width: 100%; }
 .delta.flat { color: var(--muted); }
 
 .table-wrap { overflow-x: auto; margin: 0 -16px; padding: 0 16px; }
-table.books { width: 100%; border-collapse: collapse; min-width: 980px; }
+table.books { width: 100%; border-collapse: collapse; min-width: 1100px; }
+table.books.ads { min-width: 900px; }
+table.books.ads tbody tr { cursor: default; }
+.sub-head { font-size: 13px; font-weight: 600; color: var(--text-2); margin: 20px 0 6px; }
+.camp-book { display: flex; gap: 6px; align-items: center; }
+table.books.ads td.num { white-space: nowrap; }
+.btn.small-btn { padding: 3px 8px; font-size: 12px; }
+.camp-book select { max-width: 220px; padding: 4px 8px; font-size: 13px; }
+.badge { font-size: 11px; padding: 1px 6px; border-radius: 4px; background: var(--surface-2); color: var(--text-2); white-space: nowrap; }
 .books th, .books td { padding: 10px 8px; border-bottom: 1px solid var(--grid); text-align: left; vertical-align: middle; }
 .books th { font-size: 12px; font-weight: 600; color: var(--text-2); text-transform: uppercase; letter-spacing: 0.03em; }
 .books td.num, .books th.num { text-align: right; font-variant-numeric: tabular-nums; }

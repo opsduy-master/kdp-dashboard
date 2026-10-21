@@ -71,6 +71,8 @@
               <th class="num">Einheiten</th>
               <th class="num">KENP</th>
               <th class="num">Tantiemen</th>
+              <th class="num">Werbung</th>
+              <th class="num">ACOS</th>
               <th>Stand</th>
               <th></th>
             </tr>
@@ -83,6 +85,54 @@
         <button class="btn primary" id="btn-add-empty">+ Erstes Buch hinzufügen</button>
       </div>
       <div id="unmapped"></div>
+    </section>
+
+    <section class="card" id="ads-card" hidden>
+      <div class="card-head">
+        <h2>Werbung (Sponsored Products)</h2>
+        <span class="muted small" id="ads-sub"></span>
+      </div>
+      <div class="table-wrap">
+        <table class="books ads" id="ads-campaigns">
+          <thead>
+            <tr>
+              <th>Kampagne</th>
+              <th>Buch</th>
+              <th class="num">Impressionen</th>
+              <th class="num">Klicks</th>
+              <th class="num">CTR</th>
+              <th class="num">CPC</th>
+              <th class="num">Ausgaben</th>
+              <th class="num">Umsatz (14 T.)</th>
+              <th class="num">ACOS</th>
+              <th class="num">Bestellungen</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <h3 class="sub-head">Top-Ausrichtungen</h3>
+      <div class="table-wrap">
+        <table class="books ads" id="ads-targets">
+          <thead>
+            <tr>
+              <th>Keyword / Ausrichtung</th>
+              <th>Typ</th>
+              <th>Kampagne</th>
+              <th class="num">Impressionen</th>
+              <th class="num">Klicks</th>
+              <th class="num">CTR</th>
+              <th class="num">CPC</th>
+              <th class="num">Ausgaben</th>
+              <th class="num">Umsatz (14 T.)</th>
+              <th class="num">ACOS</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <h3 class="sub-head">Werbekosten pro Tag</h3>
+      <div class="chart"><canvas id="chart-ads"></canvas></div>
     </section>
 
     <section class="grid-2">
@@ -139,11 +189,12 @@
   <!-- KDP-Report -->
   <dialog id="dlg-upload">
     <form method="dialog" class="dlg" id="form-upload">
-      <h2>KDP-Report hochladen</h2>
+      <h2>KDP- oder Werbebericht hochladen</h2>
       <ol class="small steps">
         <li>In KDP: <strong>Berichte → Tantiemen</strong> (oder „Bestellungen“) öffnen.</li>
         <li>Zeitraum wählen und <strong>„Bericht herunterladen“</strong> (XLSX).</li>
         <li>Datei hier auswählen. Bereits importierte Tage werden überschrieben, also nicht doppelt gezählt.</li>
+        <li>Auch Amazon-Ads-Berichte (<strong>Sponsored Products</strong>, z. B. Targeting- oder Keyword-Bericht als XLSX) werden erkannt.</li>
       </ol>
       <label class="drop" id="drop">
         <input type="file" id="file" accept=".xlsx,.xls,.csv">
@@ -164,7 +215,7 @@
       <h2>Einstellungen</h2>
       <p class="small muted" id="settings-info"></p>
       <div class="stack small" id="drive-section" hidden>
-        <strong>KDP-Berichte aus Google Drive</strong>
+        <strong>Berichte aus Google Drive</strong>
         <span class="muted" id="drive-info"></span>
         <div><button class="btn" type="button" id="btn-drive">Neueste Datei jetzt importieren</button></div>
       </div>
@@ -179,6 +230,7 @@
       </div>
       <div class="stack">
         <button class="btn" type="button" id="btn-clear-sales">Alle importierten Verkaufsdaten löschen</button>
+        <button class="btn" type="button" id="btn-clear-ads">Alle importierten Werbedaten löschen</button>
         <button class="btn" type="button" id="btn-logout">Abmelden</button>
       </div>
       <div class="dlg-actions">

@@ -104,3 +104,26 @@ test('Server-Import: echte XLSX-Datei (Buffer) ergibt dieselben Summen', async (
   assert.equal(rows.reduce((s, r) => s + r.kenp, 0), 967)
   assert.equal(Math.round(rows.reduce((s, r) => s + r.royalty, 0) * 100) / 100, 25.44)
 })
+
+test('Sponsored-Products-Bericht (Amazon Ads, deutsch)', async () => {
+  const { parseAdsWorkbook, guessBookForCampaign } = await import('../public/kdp-parser.js')
+  const { sheets } = await import('./fixtures/sponsored-products-de.mjs')
+  const { rows, sheetsUsed } = parseAdsWorkbook(sheets)
+  assert.deepEqual(sheetsUsed, ['Sponsored_Products_Targeting_Be'])
+  assert.equal(rows.length, 5)
+  const r = rows.find((x) => x.date === '2026-10-20')
+  assert.deepEqual(
+    { campaign: r.campaign, targeting: r.targeting, matchType: r.matchType, impressions: r.impressions, clicks: r.clicks, spend: r.spend, sales: r.sales, orders: r.orders, units: r.units },
+    { campaign: 'Krimi Sodoku / Kampagne A', targeting: 'krimi sudoku', matchType: 'EXACT', impressions: 120, clicks: 3, spend: 1.23, sales: 12.99, orders: 1, units: 1 },
+  )
+  const w = rows.find((x) => x.targeting === 'was wäre wenn buch')
+  assert.equal(w.kenp, 120)
+  assert.equal(w.kenpRoyalty, 0.52)
+  // KDP-Parser ignoriert Werbeberichte
+  assert.equal(parseKdpWorkbook(sheets).rows.length, 0)
+  // Zuordnungsvorschlag trotz Tippfehler "Sodoku"
+  const books = [{ asin: 'B0HM7F67KW', name: 'Krimi Sudoku: Die Akte Uhrmacher' }, { asin: 'B0HMV9C6BL', name: 'Was wäre, wenn...?: Das Buch für Teenager' }]
+  assert.equal(guessBookForCampaign('Krimi Sodoku / Kampagne A', books), 'B0HM7F67KW')
+  assert.equal(guessBookForCampaign('Was wäre wenn / Kampagne D', books), 'B0HMV9C6BL')
+  assert.equal(guessBookForCampaign('Ganz andere Kampagne', books), null)
+})

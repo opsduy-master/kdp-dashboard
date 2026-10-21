@@ -2,9 +2,9 @@ import { timingSafeEqual, createHash } from 'node:crypto'
 import { fetchMode, fetchProductHtml, proxyProvider } from '../lib/fetch-amazon.mjs'
 import { refreshBook, refreshIntervalMs } from '../lib/refresh.mjs'
 import { parseProduct, productUrl } from '../lib/scrape.mjs'
-import { driveConfigured, getDriveState, importFromDrive } from '../lib/drive-import.mjs'
-import { mergeSales } from '../lib/sales.mjs'
-import { getBooks, getHistory, getSales, getStatus, saveBooks, saveSales, saveStatus, store } from '../lib/store.mjs'
+import { driveConfigured, getDriveState, importAllFromDrive } from '../lib/drive-import.mjs'
+import { mergeAds, mergeSales } from '../lib/sales.mjs'
+import { getAds, getAdsMap, getBooks, getHistory, getSales, getStatus, saveAds, saveAdsMap, saveBooks, saveSales, saveStatus, store } from '../lib/store.mjs'
 
 const json = (body, status = 200) =>
   new Response(JSON.stringify(body), {
@@ -38,12 +38,12 @@ export default async (req) => {
 
   try {
     if (route === 'data' && method === 'GET') {
-      const [books, status, sales, drive] = await Promise.all([getBooks(), getStatus(), getSales(), getDriveState()])
+      const [books, status, sales, drive, ads, adsMap] = await Promise.all([getBooks(), getStatus(), getSales(), getDriveState(), getAds(), getAdsMap()])
       const histories = Object.fromEntries(
         await Promise.all(books.map(async (b) => [b.asin, await getHistory(b.asin)])),
       )
       const fetching = { mode: fetchMode(), provider: proxyProvider()?.name || null, intervalHours: refreshIntervalMs() / 3600000 }
-      return json({ books, status, histories, sales, fetching, drive: { configured: driveConfigured(), ...drive }, now: new Date().toISOString() })
+      return json({ books, status, histories, sales, ads, adsMap, fetching, drive: { configured: driveConfigured(), ...drive }, now: new Date().toISOString() })
     }
 
     if (route === 'books' && method === 'POST') {
@@ -98,7 +98,7 @@ export default async (req) => {
     }
 
     if (route === 'drive-import' && method === 'POST') {
-      return json(await importFromDrive({ force: url.searchParams.get('force') === '1' }))
+      return json(await importAllFromDrive({ force: url.searchParams.get('force') === '1' }))
     }
 
     if (route === 'sales' && method === 'POST') {
@@ -107,6 +107,29 @@ export default async (req) => {
       const { rows, added, replaced } = mergeSales(await getSales(), body.rows)
       await saveSales(rows)
       return json({ added, replaced, total: rows.length })
+    }
+
+    if (route === 'ads' && method === 'POST') {
+      const body = await req.json()
+      if (!Array.isArray(body.rows)) return json({ error: 'rows fehlt' }, 400)
+      const { rows, added, replaced } = mergeAds(await getAds(), body.rows)
+      await saveAds(rows)
+      return json({ added, replaced, total: rows.length })
+    }
+
+    if (route === 'ads' && method === 'DELETE') {
+      await saveAds([])
+      return json({ total: 0 })
+    }
+
+    if (route === 'ads-map' && method === 'POST') {
+      const { campaign, asin } = await req.json()
+      if (!campaign) return json({ error: 'campaign fehlt' }, 400)
+      const map = await getAdsMap()
+      if (asin) map[String(campaign).slice(0, 200)] = String(asin).toUpperCase()
+      else delete map[campaign]
+      await saveAdsMap(map)
+      return json({ adsMap: map })
     }
 
     if (route === 'sales' && method === 'DELETE') {
