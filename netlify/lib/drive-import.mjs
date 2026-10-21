@@ -5,6 +5,12 @@ import { getJSON, getSales, saveSales, setJSON } from './store.mjs'
 
 const STATE_KEY = 'drive-import'
 
+/** Kurzform der Bereitstellungs-ID aus der Web-App-URL, z. B. „AKfycb…X4PoA“ – zum Abgleich mit „Bereitstellungen verwalten“. */
+export function deploymentLabel(url) {
+  const id = String(url).match(/\/macros\/s\/([^/]+)\//)?.[1]
+  return id ? `${id.slice(0, 6)}…${id.slice(-5)}` : 'unbekannte URL'
+}
+
 export const driveConfigured = () => Boolean(process.env.DRIVE_SCRIPT_URL)
 export const getDriveState = () => getJSON(STATE_KEY, {})
 
@@ -41,7 +47,8 @@ export async function importFromDrive({ force = false, timeoutMs = 8000 } = {}) 
     }
     if (body.error) {
       // Alte Script-Version (vor scriptVersion 2) liefert nur die knappe Meldung
-      const hint = body.scriptVersion ? '' : ' – Hinweis: Im Apps Script läuft noch die alte Version. Code aus dem Repo einfügen und eine neue Version bereitstellen.'
+      const hint = body.scriptVersion ? '' : ` – Hinweis: Die aufgerufene Bereitstellung (${deploymentLabel(url)}) liefert noch den alten Code. ` +
+        'Im Apps Script unter „Bereitstellen → Bereitstellungen verwalten“ genau diese Bereitstellung bearbeiten und „Neue Version“ wählen – oder die URL in DRIVE_SCRIPT_URL auf die neue Bereitstellung ändern.'
       throw new Error(`Google Drive: ${body.error}${hint}`)
     }
     if (body.unchanged) {
