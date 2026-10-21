@@ -47,8 +47,12 @@ Der Zugriff läuft über ein kleines Google Apps Script unter deinem Konto, ohne
 
 5. Im Dashboard unter **⚙ → KDP-Berichte aus Google Drive → Neueste Datei jetzt importieren** testen.
 
-Änderst du später den Script-Code, musst du unter **Bereitstellen → Bereitstellungen verwalten** eine neue Version bereitstellen.
-Die URL bleibt dabei gleich.
+**Wichtig:** Eine Web-App läuft immer mit der Code-Version, die beim Bereitstellen gespeichert wurde. Änderst du danach etwas am
+Script (z. B. den `TOKEN`), musst du unter **Bereitstellen → Bereitstellungen verwalten → ✎ Bearbeiten → Version: „Neue Version“ →
+Bereitstellen** eine neue Version veröffentlichen. Die URL bleibt dabei gleich.
+
+Meldet das Dashboard „Token stimmt nicht überein“, zeigt es die Länge und das erste Zeichen beider Tokens. So erkennst du, auf welcher
+Seite der falsche Wert steht, ohne dass der Token selbst angezeigt wird.
 
 ## Wenn Amazon blockiert (HTTP 503 / Captcha)
 

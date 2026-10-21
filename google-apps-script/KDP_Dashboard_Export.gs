@@ -10,11 +10,25 @@
 const FOLDER_ID = '1QqhLbM0RAVXXT2pcFqCNRViYkGVZEeRA'
 const FILE_PREFIX = 'KDP_Dashboard'
 const TOKEN = 'HIER-EIN-LANGES-GEHEIMNIS-EINTRAGEN'
+const SCRIPT_VERSION = 2
 
 function doGet(e) {
   const params = (e && e.parameter) || {}
-  if (!TOKEN || TOKEN.indexOf('HIER-') === 0 || params.token !== TOKEN) {
-    return json({ error: 'Nicht autorisiert (Token prüfen)' })
+  const expected = String(TOKEN || '').trim()
+  const given = String(params.token || '').trim()
+  if (!expected || expected.indexOf('HIER-') === 0) {
+    return json({ error: 'TOKEN im Apps Script ist noch der Platzhalter. Token eintragen, speichern und unter „Bereitstellen → Bereitstellungen verwalten“ eine NEUE VERSION bereitstellen.', scriptVersion: SCRIPT_VERSION })
+  }
+  if (!given) {
+    return json({ error: 'Netlify schickt keinen Token: DRIVE_SCRIPT_TOKEN in Netlify setzen und neu deployen.', scriptVersion: SCRIPT_VERSION })
+  }
+  if (given !== expected) {
+    // Nur Längen und erstes Zeichen verraten, nie den Token selbst
+    return json({
+      error: `Token stimmt nicht überein (Netlify: ${given.length} Zeichen, beginnt mit „${given[0]}“ · Script: ${expected.length} Zeichen, beginnt mit „${expected[0]}“). ` +
+        'Nach Änderungen im Script eine NEUE VERSION bereitstellen; nach Änderungen in Netlify neu deployen.',
+      scriptVersion: SCRIPT_VERSION,
+    })
   }
 
   const files = DriveApp.getFolderById(FOLDER_ID).getFiles()

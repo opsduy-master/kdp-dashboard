@@ -25,8 +25,8 @@ export function parseWorkbookBuffer(buf) {
 export async function importFromDrive({ force = false, timeoutMs = 8000 } = {}) {
   if (!driveConfigured()) return { configured: false }
   const state = await getDriveState()
-  const url = new URL(process.env.DRIVE_SCRIPT_URL)
-  url.searchParams.set('token', process.env.DRIVE_SCRIPT_TOKEN || '')
+  const url = new URL(process.env.DRIVE_SCRIPT_URL.trim())
+  url.searchParams.set('token', (process.env.DRIVE_SCRIPT_TOKEN || '').trim())
   if (!force && state.modifiedTime) {
     url.searchParams.set('since', state.modifiedTime)
     url.searchParams.set('id', state.fileId || '')
@@ -39,7 +39,11 @@ export async function importFromDrive({ force = false, timeoutMs = 8000 } = {}) 
     try { body = JSON.parse(text) } catch {
       throw new Error(`Apps Script antwortet nicht mit JSON (HTTP ${res.status}) – ist die Web-App mit Zugriff „Jeder“ bereitgestellt?`)
     }
-    if (body.error) throw new Error(`Google Drive: ${body.error}`)
+    if (body.error) {
+      // Alte Script-Version (vor scriptVersion 2) liefert nur die knappe Meldung
+      const hint = body.scriptVersion ? '' : ' – Hinweis: Im Apps Script läuft noch die alte Version. Code aus dem Repo einfügen und eine neue Version bereitstellen.'
+      throw new Error(`Google Drive: ${body.error}${hint}`)
+    }
     if (body.unchanged) {
       const next = { ...state, checkedAt, error: null }
       await setJSON(STATE_KEY, next)
