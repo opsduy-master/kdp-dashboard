@@ -2,6 +2,7 @@ import { timingSafeEqual, createHash } from 'node:crypto'
 import { fetchMode, fetchProductHtml, proxyProvider } from '../lib/fetch-amazon.mjs'
 import { refreshBook, refreshIntervalMs } from '../lib/refresh.mjs'
 import { parseProduct, productUrl } from '../lib/scrape.mjs'
+import { driveConfigured, getDriveState, importFromDrive } from '../lib/drive-import.mjs'
 import { mergeSales } from '../lib/sales.mjs'
 import { getBooks, getHistory, getSales, getStatus, saveBooks, saveSales, saveStatus, store } from '../lib/store.mjs'
 
@@ -37,12 +38,12 @@ export default async (req) => {
 
   try {
     if (route === 'data' && method === 'GET') {
-      const [books, status, sales] = await Promise.all([getBooks(), getStatus(), getSales()])
+      const [books, status, sales, drive] = await Promise.all([getBooks(), getStatus(), getSales(), getDriveState()])
       const histories = Object.fromEntries(
         await Promise.all(books.map(async (b) => [b.asin, await getHistory(b.asin)])),
       )
       const fetching = { mode: fetchMode(), provider: proxyProvider()?.name || null, intervalHours: refreshIntervalMs() / 3600000 }
-      return json({ books, status, histories, sales, fetching, now: new Date().toISOString() })
+      return json({ books, status, histories, sales, fetching, drive: { configured: driveConfigured(), ...drive }, now: new Date().toISOString() })
     }
 
     if (route === 'books' && method === 'POST') {
@@ -94,6 +95,10 @@ export default async (req) => {
         result.error = String(err?.message || err)
       }
       return json(result)
+    }
+
+    if (route === 'drive-import' && method === 'POST') {
+      return json(await importFromDrive({ force: url.searchParams.get('force') === '1' }))
     }
 
     if (route === 'sales' && method === 'POST') {

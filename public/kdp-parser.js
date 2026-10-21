@@ -3,14 +3,15 @@
 
 const norm = (s) => String(s ?? '').toLowerCase().replace(/\s+/g, ' ').trim()
 
-// Reihenfolge = Priorität. exclude verhindert Verwechslungen (z. B. "Royalty Date" ist keine Tantieme).
+// Reihenfolge = Priorität (Strings = Teilwort, RegExp für ganze Wörter, z. B. damit "Dateigröße" kein Datum ist).
+// exclude verhindert Verwechslungen (z. B. "Royalty Date" ist keine Tantieme).
 const COLUMNS = {
-  date: { match: ['royalty date', 'datum der tantieme', 'order date', 'date', 'datum'] },
+  date: { match: ['royalty date', 'tantiemendatum', 'datum der tantieme', 'order date', /\bdate\b/, /^datum$/, 'datum'] },
   id: { match: ['asin/isbn', 'asin', 'isbn'] },
   title: { match: ['title', 'titel'] },
   marketplace: { match: ['marketplace', 'marktplatz'] },
   units: {
-    match: ['net units sold', 'netto verkaufte einheiten', 'netto-einheiten', 'paid units', 'bezahlte einheiten', 'units sold', 'verkaufte einheiten'],
+    match: ['net units sold', 'verkaufte einheiten (netto)', 'netto verkaufte einheiten', 'netto-einheiten', 'paid units', 'bezahlte einheiten', 'units sold', 'verkaufte einheiten'],
     exclude: ['refund', 'erstatt', 'free', 'kostenlos'],
   },
   kenp: { match: ['kenp'] },
@@ -25,7 +26,8 @@ function findColumns(header) {
     outer: for (const m of match) {
       for (let i = 0; i < h.length; i++) {
         if (Object.values(cols).includes(i)) continue
-        if (h[i].includes(m) && !exclude.some((x) => h[i].includes(x))) {
+        const hit = m instanceof RegExp ? m.test(h[i]) : h[i].includes(m)
+        if (hit && !exclude.some((x) => h[i].includes(x))) {
           cols[key] = i
           break outer
         }
@@ -35,8 +37,12 @@ function findColumns(header) {
   return cols
 }
 
+// Bestell-Blätter ("Verarbeitete/Aufgegebene Bestellungen", "Orders") überschneiden sich mit den Tantiemen-Blättern
+const isOrdersSheet = (name) => /bestellung|order/.test(norm(name))
+
 function formatFromSheet(name) {
   const n = norm(name)
+  if (isOrdersSheet(name)) return null
   if (n.includes('kenp')) return 'kenp'
   if (n.includes('ebook') || n.includes('e-book') || n.includes('kindle')) return 'ebook'
   if (n.includes('paperback') || n.includes('taschenbuch')) return 'paperback'
@@ -80,6 +86,7 @@ export function toNumber(v) {
  */
 export function parseKdpWorkbook(sheets) {
   const hasFormatSheets = sheets.some((s) => formatFromSheet(s.name))
+  const hasRoyaltySheets = sheets.some((s) => !isOrdersSheet(s.name) && /royalt|tantieme|kenp/.test(norm(s.name)))
   const agg = new Map()
   const sheetsUsed = []
   const skipped = []
@@ -88,6 +95,7 @@ export function parseKdpWorkbook(sheets) {
     const format = formatFromSheet(sheet.name)
     // "Combined Sales"/"Summary" doppelt die Einzelblätter – nur nutzen, wenn es keine gibt
     if (!format && hasFormatSheets) { skipped.push(sheet.name); continue }
+    if (isOrdersSheet(sheet.name) && hasRoyaltySheets) { skipped.push(sheet.name); continue }
 
     const headerIdx = sheet.rows.slice(0, 15).findIndex((r) => {
       const c = findColumns(r || [])

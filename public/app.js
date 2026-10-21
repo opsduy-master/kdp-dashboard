@@ -144,7 +144,10 @@ function render() {
   renderUnmapped()
   renderCharts()
   $('#empty').hidden = books.length > 0
-  $('#footer-info').textContent = fetchingText() + ' Verkäufe stammen aus deinen hochgeladenen KDP-Berichten.'
+  const d = state.data.drive || {}
+  $('#footer-info').textContent = fetchingText() + (d.configured
+    ? ` Verkäufe: automatisch aus Google Drive${d.importedAt ? ` (zuletzt ${d.name}, ${rel(d.importedAt)})` : ''}.`
+    : ' Verkäufe stammen aus deinen hochgeladenen KDP-Berichten.')
   $('#books-table').hidden = books.length === 0
 }
 
@@ -394,12 +397,31 @@ function progress(text, kind = 'warn') {
   $('#progress').textContent = text || ''
 }
 
-async function refreshAll(asins = state.data.books.map((b) => b.asin)) {
+function driveResultText(r) {
+  if (!r?.configured) return ''
+  if (r.error) return `⚠ ${r.error}`
+  if (r.imported) return `✓ KDP-Bericht „${r.name}“ aus Google Drive importiert (${fmtNum(r.added)} neu, ${fmtNum(r.replaced)} aktualisiert).`
+  if (r.unchanged) return 'KDP-Bericht in Google Drive unverändert.'
+  return ''
+}
+
+async function importDrive({ force = false } = {}) {
+  progress('Prüfe Google Drive auf einen neuen KDP-Bericht …', 'info')
+  try {
+    return await api(`drive-import${force ? '?force=1' : ''}`, { method: 'POST' })
+  } catch (e) {
+    return { configured: true, error: e.message }
+  }
+}
+
+async function refreshAll(asins = state.data.books.map((b) => b.asin), { withDrive = true } = {}) {
   const btn = $('#btn-refresh')
   btn.disabled = true
   const errors = []
   let queued = 0
+  let driveMsg = ''
   try {
+    if (withDrive && state.data.drive?.configured) driveMsg = driveResultText(await importDrive())
     for (let i = 0; i < asins.length; i++) {
       progress(`Rufe Amazon-Daten ab … ${i + 1} / ${asins.length}`, 'info')
       try {
@@ -410,10 +432,12 @@ async function refreshAll(asins = state.data.books.map((b) => b.asin)) {
     }
     await load()
     const first = (errors[0]?.replace(/^[A-Z0-9]{10}: /, '') || '').replace(/([^.])$/, '$1.')
-    progress(errors.length
+    const amazonMsg = errors.length
       ? `⚠ ${errors.length} von ${asins.length} Abruf(en) fehlgeschlagen: ${first}` +
         (queued ? ` Der Hintergrundjob versucht es innerhalb von 15 Minuten erneut.` : '')
-      : '')
+      : ''
+    const msg = [amazonMsg, driveMsg].filter(Boolean).join(' ')
+    progress(msg, /⚠/.test(msg) ? 'warn' : 'ok')
   } finally {
     btn.disabled = false
   }
@@ -490,7 +514,7 @@ $('#add-submit').addEventListener('click', async (e) => {
     await api('books', { method: 'POST', body: JSON.stringify({ asin, label: f.label.value.trim(), ids: f.ids.value }) })
     $('#dlg-add').close()
     await load()
-    if (isNew) refreshAll([asin])
+    if (isNew) refreshAll([asin], { withDrive: false })
   } catch (err) {
     $('#add-error').textContent = err.message
   }
@@ -568,11 +592,32 @@ $('#btn-settings').addEventListener('click', () => {
     ? `${fmtNum(n)} Verkaufsdatensätze gespeichert (${dates[0]} bis ${dates[dates.length - 1]}).`
     : 'Noch keine Verkaufsdaten importiert.'
   $('#fetch-info').textContent = fetchingText().replace(/^Amazon-Abruf: /, '')
+  renderDriveInfo()
   $('#diag-asin').innerHTML = state.data.books.map((b) => `<option value="${b.asin}">${esc(b.label || latestOf(b.asin)?.title || b.asin)}</option>`).join('')
   $('#diag-row').hidden = !state.data.books.length
   $('#diag-out').innerHTML = ''
   $('#dlg-settings').showModal()
 })
+function renderDriveInfo() {
+  const d = state.data.drive || {}
+  $('#drive-section').hidden = !d.configured
+  if (!d.configured) return
+  $('#drive-info').innerHTML = [
+    d.name ? `Zuletzt importiert: <strong>${esc(d.name)}</strong> (Datei vom ${new Date(d.modifiedTime).toLocaleString('de-DE')}, importiert ${rel(d.importedAt)})` : 'Noch nichts importiert.',
+    d.checkedAt ? `Zuletzt geprüft ${rel(d.checkedAt)}. Wird stündlich und bei „Jetzt aktualisieren“ geprüft.` : '',
+    d.error ? `<span class="error">⚠ ${esc(d.error)}</span>` : '',
+  ].filter(Boolean).join('<br>')
+}
+
+$('#btn-drive').addEventListener('click', async () => {
+  $('#btn-drive').disabled = true
+  const r = await importDrive({ force: true })
+  await load()
+  renderDriveInfo()
+  progress(driveResultText(r), r.error ? 'warn' : 'ok')
+  $('#btn-drive').disabled = false
+})
+
 function shortError(msg) {
   if (/Bot-Schutz|Captcha|blockiert/i.test(msg)) return 'Von Amazon blockiert'
   if (/Kontingent|API-Key/i.test(msg)) return 'Scraping-Dienst: Key/Kontingent'

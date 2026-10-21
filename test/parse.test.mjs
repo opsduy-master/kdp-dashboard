@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import { parseProduct, parseNumber, isBlocked } from '../netlify/lib/scrape.mjs'
 import { mergeSales } from '../netlify/lib/sales.mjs'
 import { parseKdpWorkbook, toISODate } from '../public/kdp-parser.js'
+import { sheets as kdpDashboardDe } from './fixtures/kdp-dashboard-de.mjs'
 
 const PRODUCT_HTML = `<html><body>
 <span id="productTitle"> Mein Testbuch: Ein Roman </span>
@@ -78,4 +79,28 @@ test('Merge ersetzt gleiche Schlüssel', () => {
   assert.equal(b.replaced, 1)
   assert.equal(b.added, 0)
   assert.equal(b.rows[0].units, 5)
+})
+
+test('Deutscher KDP-Dashboard-Export (Struktur wie KDP_Dashboard-*.xlsx)', () => {
+  const { rows, sheetsUsed } = parseKdpWorkbook(kdpDashboardDe)
+  assert.deepEqual(sheetsUsed, ['eBook-Tantiemen', 'Taschenbuchtantiemen', 'Tantiemen für gebundene Ausgabe', 'KENP'])
+  const sum = (f, fmt) => rows.filter((r) => !fmt || r.format === fmt).reduce((s, r) => s + r[f], 0)
+  // Kontrollsummen aus dem Blatt "Übersicht"
+  assert.equal(sum('units', 'ebook'), 7)
+  assert.equal(sum('units', 'paperback'), 5)
+  assert.equal(sum('kenp'), 967)
+  assert.equal(Math.round(sum('royalty') * 100) / 100, 25.44)
+  // Taschenbuch wird der Taschenbuch-ASIN zugeordnet (passt zur ASIN im Dashboard)
+  assert.ok(rows.some((r) => r.format === 'paperback' && r.id === 'B0HM7F67KW'))
+})
+
+test('Server-Import: echte XLSX-Datei (Buffer) ergibt dieselben Summen', async () => {
+  const XLSX = await import('xlsx')
+  const { parseWorkbookBuffer } = await import('../netlify/lib/drive-import.mjs')
+  const wb = XLSX.utils.book_new()
+  for (const s of kdpDashboardDe) XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(s.rows), s.name)
+  const { rows } = parseWorkbookBuffer(XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }))
+  assert.equal(rows.reduce((s, r) => s + r.units, 0), 12)
+  assert.equal(rows.reduce((s, r) => s + r.kenp, 0), 967)
+  assert.equal(Math.round(rows.reduce((s, r) => s + r.royalty, 0) * 100) / 100, 25.44)
 })

@@ -24,6 +24,32 @@ BSR (Haupt- und Unterkategorien) und Verkäufe, Tantiemen und KENP auf einer Sei
 5. In KDP unter **Berichte** den Tantiemen- oder Bestellbericht als XLSX herunterladen und über **⇪ KDP-Report** hochladen.
    IDs aus dem Report, die keinem Buch zugeordnet sind, zeigt das Dashboard unter der Tabelle an. Dort kannst du sie mit einem Klick zuordnen.
 
+## KDP-Berichte automatisch aus Google Drive
+
+Statt den Bericht jedes Mal hochzuladen, kann das Dashboard die **neueste `KDP_Dashboard-*.xlsx`** aus einem Google-Drive-Ordner
+selbst holen: bei jedem Klick auf **„Jetzt aktualisieren“** und stündlich im Hintergrund. Heruntergeladen wird nur, wenn sich die Datei
+geändert hat. Da sich Zeiträume überschneiden dürfen, werden bereits importierte Tage einfach aktualisiert.
+
+Der Zugriff läuft über ein kleines Google Apps Script unter deinem Konto, ohne Google-Cloud-Projekt:
+
+1. [script.google.com](https://script.google.com) → **Neues Projekt**, Namen vergeben (z. B. „KDP Dashboard Export“).
+2. Den Inhalt von [`google-apps-script/KDP_Dashboard_Export.gs`](google-apps-script/KDP_Dashboard_Export.gs) einfügen.
+   `FOLDER_ID` ist bereits dein Ordner. `TOKEN` durch ein langes, zufälliges Geheimnis ersetzen und speichern.
+3. **Bereitstellen → Neue Bereitstellung** → Zahnrad → **Web-App**, *Ausführen als*: **Ich**, *Zugriff*: **Jeder** → Bereitstellen.
+   Beim ersten Mal den Zugriff auf Google Drive erlauben. (Zugriff „Jeder“ ist nötig, damit Netlify die Web-App ohne Google-Login
+   aufrufen kann; ohne den richtigen Token liefert sie nichts aus.)
+4. Die angezeigte **Web-App-URL** (endet auf `/exec`) und den Token in Netlify eintragen und neu deployen:
+
+   | Variable | Wert |
+   |---|---|
+   | `DRIVE_SCRIPT_URL` | `https://script.google.com/macros/s/…/exec` |
+   | `DRIVE_SCRIPT_TOKEN` | derselbe Token wie im Script |
+
+5. Im Dashboard unter **⚙ → KDP-Berichte aus Google Drive → Neueste Datei jetzt importieren** testen.
+
+Änderst du später den Script-Code, musst du unter **Bereitstellen → Bereitstellungen verwalten** eine neue Version bereitstellen.
+Die URL bleibt dabei gleich.
+
 ## Wenn Amazon blockiert (HTTP 503 / Captcha)
 
 Die Daten werden von den öffentlichen Produktseiten gelesen. Amazon weist Anfragen aus Rechenzentren (also auch von Netlify/AWS)
@@ -71,6 +97,8 @@ npx netlify-cli dev            # http://localhost:8888
 |---|---|
 | `public/` | Dashboard (HTML/CSS/JS, Chart.js, SheetJS zum Lesen der XLSX im Browser) |
 | `public/kdp-parser.js` | erkennt KDP-Berichte (englische & deutsche Spalten, eBook/Taschenbuch/Hardcover/KENP) |
+| `netlify/lib/drive-import.mjs` | holt die neueste `KDP_Dashboard-*.xlsx` über das Apps Script und importiert sie |
+| `google-apps-script/KDP_Dashboard_Export.gs` | Apps Script (Web-App), das die Datei aus Google Drive ausliefert |
 | `netlify/functions/api.mjs` | API unter `/api/*` (Daten, Bücher, manueller Abruf, Verkaufsimport), passwortgeschützt |
 | `netlify/functions/scheduled-refresh.mjs` | Job alle 15 Minuten, ruft fällige Bücher ab |
 | `netlify/lib/fetch-amazon.mjs` | Abruf: Browser-Header, Cookie-Sitzung, Wiederholung, Scraping-Dienste |
