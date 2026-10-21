@@ -1,0 +1,16 @@
+{
+  "name": "kdp-dashboard",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "KDP-Dashboard: Bewertungen, BSR, Preis und Verkäufe deiner Bücher (amazon.de) auf einen Blick",
+  "scripts": {
+    "dev": "netlify dev",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "@netlify/blobs": "^11.1.5",
+    "@netlify/functions": "^6.0.3",
+    "cheerio": "^1.2.0"
+  }
+}

@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>KDP Dashboard</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%232a78d6'/><path d='M9 8h9a5 5 0 0 1 5 5v11H14a5 5 0 0 1-5-5z' fill='white'/></svg>">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <!-- Login -->
+  <main id="login" class="login" hidden>
+    <form id="login-form" class="card login-card">
+      <h1>KDP Dashboard</h1>
+      <p class="muted">Bitte Dashboard-Passwort eingeben.</p>
+      <input id="login-password" type="password" autocomplete="current-password" placeholder="Passwort" required>
+      <p id="login-error" class="error" role="alert"></p>
+      <button class="btn primary" type="submit">Anmelden</button>
+    </form>
+  </main>
+
+  <!-- Dashboard -->
+  <div id="app" hidden>
+    <header class="topbar">
+      <div class="brand">
+        <h1>KDP Dashboard</h1>
+        <span id="updated" class="muted small"></span>
+      </div>
+      <div class="actions">
+        <button id="btn-refresh" class="btn">↻ Jetzt aktualisieren</button>
+        <button id="btn-upload" class="btn">⇪ KDP-Report</button>
+        <button id="btn-add" class="btn primary">+ Buch</button>
+        <button id="btn-settings" class="btn ghost" aria-label="Einstellungen">⚙</button>
+      </div>
+    </header>
+
+    <div id="progress" class="banner" hidden></div>
+
+    <section class="filters" aria-label="Filter">
+      <div class="segmented" id="range" role="radiogroup" aria-label="Zeitraum">
+        <button data-days="7">7 T.</button>
+        <button data-days="30">30 T.</button>
+        <button data-days="90">90 T.</button>
+        <button data-days="365">12 M.</button>
+        <button data-days="0">Alles</button>
+      </div>
+      <label class="select">
+        <span class="muted small">Marktplatz</span>
+        <select id="marketplace"></select>
+      </label>
+    </section>
+
+    <section class="kpis" id="kpis"></section>
+
+    <section class="card">
+      <div class="card-head">
+        <h2>Meine Bücher</h2>
+        <span class="muted small">BSR &amp; Bewertungen von amazon.de · Verkäufe aus KDP-Report</span>
+      </div>
+      <div class="table-wrap">
+        <table class="books" id="books-table">
+          <thead>
+            <tr>
+              <th>Buch</th>
+              <th class="num">Preis</th>
+              <th class="num">Bewertung</th>
+              <th class="num">Rezensionen</th>
+              <th class="num">BSR</th>
+              <th>Top-Kategorie</th>
+              <th class="num">Einheiten</th>
+              <th class="num">KENP</th>
+              <th class="num">Tantiemen</th>
+              <th>Stand</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <div id="empty" class="empty" hidden>
+        <p><strong>Noch keine Bücher.</strong> Füge ein Buch über seine ASIN hinzu (steht in der Amazon-URL nach <code>/dp/</code>).</p>
+        <button class="btn primary" id="btn-add-empty">+ Erstes Buch hinzufügen</button>
+      </div>
+      <div id="unmapped"></div>
+    </section>
+
+    <section class="grid-2">
+      <div class="card">
+        <div class="card-head"><h2>Verkaufte Einheiten pro Tag</h2><span class="muted small" id="units-sub"></span></div>
+        <div class="chart"><canvas id="chart-units"></canvas></div>
+      </div>
+      <div class="card">
+        <div class="card-head"><h2>Gelesene KENP-Seiten pro Tag</h2><span class="muted small" id="kenp-sub"></span></div>
+        <div class="chart"><canvas id="chart-kenp"></canvas></div>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="card-head">
+        <h2>BSR-Verlauf</h2>
+        <span class="muted small">Logarithmische Skala, oben = besser. Klick auf eine Buchzeile hebt sie hervor.</span>
+      </div>
+      <div class="chart tall"><canvas id="chart-bsr"></canvas></div>
+    </section>
+
+    <section class="card">
+      <div class="card-head"><h2>Rezensionen über Zeit</h2></div>
+      <div class="chart"><canvas id="chart-reviews"></canvas></div>
+    </section>
+
+    <footer class="muted small footer">
+      Amazon-Daten werden automatisch etwa alle 3 Stunden abgerufen. Verkäufe stammen aus deinen hochgeladenen KDP-Berichten.
+    </footer>
+  </div>
+
+  <!-- Buch hinzufügen -->
+  <dialog id="dlg-add">
+    <form method="dialog" id="form-add" class="dlg">
+      <h2 id="add-title">Buch hinzufügen</h2>
+      <label>ASIN der Produktseite auf amazon.de
+        <input name="asin" required pattern="[A-Za-z0-9]{10}" placeholder="z. B. B0ABC12345" autocomplete="off">
+      </label>
+      <label>Anzeigename (optional)
+        <input name="label" placeholder="Kurzer Name für das Dashboard" autocomplete="off">
+      </label>
+      <label>Weitere IDs desselben Buchs (optional)
+        <input name="ids" placeholder="eBook-ASIN, Taschenbuch-ISBN … durch Komma getrennt" autocomplete="off">
+        <span class="muted small">Damit Verkäufe aller Ausgaben (eBook, Taschenbuch, Hardcover) diesem Buch zugeordnet werden.</span>
+      </label>
+      <p class="error" id="add-error" role="alert"></p>
+      <div class="dlg-actions">
+        <button class="btn ghost" value="cancel" formnovalidate>Abbrechen</button>
+        <button class="btn primary" value="ok" id="add-submit">Speichern</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- KDP-Report -->
+  <dialog id="dlg-upload">
+    <form method="dialog" class="dlg" id="form-upload">
+      <h2>KDP-Report hochladen</h2>
+      <ol class="small steps">
+        <li>In KDP: <strong>Berichte → Tantiemen</strong> (oder „Bestellungen“) öffnen.</li>
+        <li>Zeitraum wählen und <strong>„Bericht herunterladen“</strong> (XLSX).</li>
+        <li>Datei hier auswählen. Bereits importierte Tage werden überschrieben, also nicht doppelt gezählt.</li>
+      </ol>
+      <label class="drop" id="drop">
+        <input type="file" id="file" accept=".xlsx,.xls,.csv">
+        <span>Datei auswählen oder hierher ziehen</span>
+      </label>
+      <div id="upload-preview" class="small"></div>
+      <p class="error" id="upload-error" role="alert"></p>
+      <div class="dlg-actions">
+        <button class="btn ghost" value="cancel" formnovalidate>Abbrechen</button>
+        <button class="btn primary" value="ok" id="upload-submit" disabled>Importieren</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Einstellungen -->
+  <dialog id="dlg-settings">
+    <form method="dialog" class="dlg">
+      <h2>Einstellungen</h2>
+      <p class="small muted" id="settings-info"></p>
+      <div class="stack">
+        <button class="btn" type="button" id="btn-clear-sales">Alle importierten Verkaufsdaten löschen</button>
+        <button class="btn" type="button" id="btn-logout">Abmelden</button>
+      </div>
+      <div class="dlg-actions">
+        <button class="btn primary" value="close">Schließen</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.1/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <script type="module" src="app.js"></script>
+</body>
+</html>
