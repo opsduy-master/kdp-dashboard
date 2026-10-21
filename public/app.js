@@ -144,6 +144,7 @@ function render() {
   renderUnmapped()
   renderCharts()
   $('#empty').hidden = books.length > 0
+  $('#footer-info').textContent = fetchingText() + ' Verkäufe stammen aus deinen hochgeladenen KDP-Berichten.'
   $('#books-table').hidden = books.length === 0
 }
 
@@ -238,7 +239,7 @@ function renderTable() {
       <td class="num">${fmtNum(s.units)}</td>
       <td class="num">${fmtNum(s.kenp)}</td>
       <td class="num">${rt.main}${rt.rest ? `<br><span class="muted small">+ ${rt.rest}</span>` : ''}</td>
-      <td><span class="small">${rel(st.lastSuccess)}</span>${st.lastError ? `<br><span class="status-err" title="${esc(st.lastError)}">⚠ ${esc(st.lastError.split(' – ')[0])}</span>` : ''}</td>
+      <td><span class="small">${rel(st.lastSuccess)}</span>${st.lastError ? `<br><span class="status-err" title="${esc(st.lastError)}">⚠ ${esc(shortError(st.lastError))}</span>` : ''}${st.queued ? '<br><span class="muted small">⏳ wird im Hintergrund erneut versucht</span>' : ''}</td>
       <td><button class="btn icon" data-edit="${b.asin}" title="Bearbeiten" aria-label="Bearbeiten">✎</button><button class="btn icon" data-del="${b.asin}" title="Entfernen" aria-label="Entfernen">✕</button></td>
     </tr>`
   }).join('')
@@ -397,16 +398,22 @@ async function refreshAll(asins = state.data.books.map((b) => b.asin)) {
   const btn = $('#btn-refresh')
   btn.disabled = true
   const errors = []
+  let queued = 0
   try {
     for (let i = 0; i < asins.length; i++) {
       progress(`Rufe Amazon-Daten ab … ${i + 1} / ${asins.length}`, 'info')
       try {
         const r = await api(`refresh/${asins[i]}`, { method: 'POST' })
         if (r.lastError) errors.push(`${asins[i]}: ${r.lastError}`)
+        if (r.queued) queued++
       } catch (e) { errors.push(`${asins[i]}: ${e.message}`) }
     }
     await load()
-    progress(errors.length ? `⚠ ${errors.length} Abruf(e) fehlgeschlagen. ${errors.join(' · ')}` : '')
+    const first = (errors[0]?.replace(/^[A-Z0-9]{10}: /, '') || '').replace(/([^.])$/, '$1.')
+    progress(errors.length
+      ? `⚠ ${errors.length} von ${asins.length} Abruf(en) fehlgeschlagen: ${first}` +
+        (queued ? ` Der Hintergrundjob versucht es innerhalb von 15 Minuten erneut.` : '')
+      : '')
   } finally {
     btn.disabled = false
   }
@@ -560,8 +567,45 @@ $('#btn-settings').addEventListener('click', () => {
   $('#settings-info').textContent = n
     ? `${fmtNum(n)} Verkaufsdatensätze gespeichert (${dates[0]} bis ${dates[dates.length - 1]}).`
     : 'Noch keine Verkaufsdaten importiert.'
+  $('#fetch-info').textContent = fetchingText().replace(/^Amazon-Abruf: /, '')
+  $('#diag-asin').innerHTML = state.data.books.map((b) => `<option value="${b.asin}">${esc(b.label || latestOf(b.asin)?.title || b.asin)}</option>`).join('')
+  $('#diag-row').hidden = !state.data.books.length
+  $('#diag-out').innerHTML = ''
   $('#dlg-settings').showModal()
 })
+function shortError(msg) {
+  if (/Bot-Schutz|Captcha|blockiert/i.test(msg)) return 'Von Amazon blockiert'
+  if (/Kontingent|API-Key/i.test(msg)) return 'Scraping-Dienst: Key/Kontingent'
+  if (/Zeitüberschreitung/i.test(msg)) return 'Zeitüberschreitung'
+  if (/404/.test(msg)) return 'Nicht gefunden (ASIN?)'
+  return msg.split(' – ')[0]
+}
+
+function fetchingText() {
+  const f = state.data.fetching || {}
+  const via = { direct: 'direkt von amazon.de', proxy: `über ${f.provider}`, fallback: `direkt, bei Ablehnung über ${f.provider}` }[f.mode] || 'direkt'
+  return `Amazon-Abruf: ${via}, jedes Buch etwa alle ${nf.format(f.intervalHours || 3)} Std.`
+}
+
+$('#btn-diag').addEventListener('click', async () => {
+  const out = $('#diag-out')
+  out.innerHTML = '<p class="muted">Teste Abruf … (bis zu 10 Sekunden)</p>'
+  $('#btn-diag').disabled = true
+  try {
+    const r = await api(`diagnose/${$('#diag-asin').value}`)
+    const steps = r.log.map((l) => `<tr><td>${esc(l.step)}</td><td class="num">${l.status ?? '–'}</td><td class="num">${fmtNum(l.ms)} ms</td><td>${
+      l.error ? esc(l.error) : l.blocked ? '⚠ Bot-Schutz/Captcha' : l.status >= 400 ? '⚠ abgelehnt' : '✓'}</td></tr>`).join('')
+    const p = r.parsed
+    out.innerHTML = `<p><strong>${r.ok ? `✓ Erfolgreich (${esc(r.via)})` : '⚠ Fehlgeschlagen'}</strong>${r.error ? ` – ${esc(r.error)}` : ''}</p>
+      <table class="diag"><thead><tr><th>Schritt</th><th class="num">HTTP</th><th class="num">Dauer</th><th>Ergebnis</th></tr></thead><tbody>${steps}</tbody></table>
+      ${p ? `<p class="muted">Gelesen: Preis ${p.price != null ? money(p.price) : '–'} · Bewertung ${p.rating != null ? nf1.format(p.rating) : '–'} · Rezensionen ${fmtNum(p.reviews)} · BSR ${p.bsr ? '#' + fmtNum(p.bsr) : '–'}</p>` : ''}`
+  } catch (err) {
+    out.innerHTML = `<p class="error">${esc(err.message)}</p>`
+  } finally {
+    $('#btn-diag').disabled = false
+  }
+})
+
 $('#btn-clear-sales').addEventListener('click', async () => {
   if (!confirm('Wirklich alle importierten Verkaufsdaten löschen? Amazon-Daten (BSR, Bewertungen) bleiben erhalten.')) return
   await api('sales', { method: 'DELETE' })

@@ -110,7 +110,7 @@
     </section>
 
     <footer class="muted small footer">
-      Amazon-Daten werden automatisch etwa alle 3 Stunden abgerufen. Verkäufe stammen aus deinen hochgeladenen KDP-Berichten.
+      <span id="footer-info"></span>
     </footer>
   </div>
 
@@ -163,6 +163,15 @@
     <form method="dialog" class="dlg">
       <h2>Einstellungen</h2>
       <p class="small muted" id="settings-info"></p>
+      <div class="stack small">
+        <strong>Amazon-Abruf</strong>
+        <span class="muted" id="fetch-info"></span>
+        <div class="diag-row" id="diag-row">
+          <select id="diag-asin" aria-label="Buch für den Test"></select>
+          <button class="btn" type="button" id="btn-diag">Abruf testen</button>
+        </div>
+        <div id="diag-out"></div>
+      </div>
       <div class="stack">
         <button class="btn" type="button" id="btn-clear-sales">Alle importierten Verkaufsdaten löschen</button>
         <button class="btn" type="button" id="btn-logout">Abmelden</button>

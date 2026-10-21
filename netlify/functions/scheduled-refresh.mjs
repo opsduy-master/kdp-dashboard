@@ -1,10 +1,12 @@
 import { refreshDue } from '../lib/refresh.mjs'
 
-// Läuft stündlich; jedes Buch wird höchstens alle ~3 Stunden abgefragt.
-// Scheduled Functions dürfen max. 30 s laufen, daher das Zeitbudget.
+// Läuft alle 15 Minuten und arbeitet in kleinen Portionen ab: Scheduled Functions dürfen max. 30 s laufen,
+// und Abrufe über einen Scraping-Dienst brauchen oft 5–20 s. Wie oft ein Buch abgefragt wird,
+// steuert REFRESH_INTERVAL_HOURS (Standard 3).
 export default async () => {
-  const results = await refreshDue({ budgetMs: 14_000, minAgeMs: 170 * 60 * 1000 })
-  console.log('Aktualisiert:', JSON.stringify(results))
+  const { results, due } = await refreshDue({ startWindowMs: 8000, hardDeadline: Date.now() + 26000 })
+  const summary = Object.fromEntries(Object.entries(results).map(([asin, r]) => [asin, r.lastError || `ok (${r.method})`]))
+  console.log(`Fällig: ${due}, abgerufen: ${JSON.stringify(summary)}`)
 }
 
-export const config = { schedule: '7 * * * *' }
+export const config = { schedule: '*/15 * * * *' }

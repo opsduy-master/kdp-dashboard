@@ -2,18 +2,30 @@ import { scrapeProduct } from './scrape.mjs'
 import { appendHistory, getBooks, getStatus, saveBooks, saveStatus } from './store.mjs'
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
+const MIN = 60 * 1000
+
+export const refreshIntervalMs = () => (Number(process.env.REFRESH_INTERVAL_HOURS) || 3) * 60 * MIN
+
+/** Wann ein Buch wieder dran ist: regulär nach dem Intervall, nach Fehlern mit wachsendem Abstand (30 min, 1 h, 2 h …). */
+export function nextDueAt(entry, intervalMs = refreshIntervalMs()) {
+  if (!entry) return 0
+  if (entry.queued) return 0
+  const last = Date.parse(entry.lastSuccess || 0) || 0
+  if (!entry.lastError) return last + intervalMs
+  const fails = Math.max(1, entry.failCount || 1)
+  const backoff = Math.min(intervalMs, 30 * MIN * 2 ** (fails - 1))
+  return (Date.parse(entry.lastAttempt || 0) || 0) + backoff
+}
 
 /** Aktualisiert ein einzelnes Buch und speichert Snapshot bzw. Fehler. */
-export async function refreshBook(asin, { timeoutMs } = {}) {
+export async function refreshBook(asin, { deadline, queueOnFailure = false } = {}) {
   const status = await getStatus()
   const entry = { ...(status[asin] || {}), lastAttempt: new Date().toISOString() }
   try {
-    const data = await scrapeProduct(asin, { timeoutMs })
+    const { method, ...data } = await scrapeProduct(asin, { deadline })
     const snapshot = { t: entry.lastAttempt, ...data }
     await appendHistory(asin, snapshot)
-    entry.lastSuccess = entry.lastAttempt
-    entry.lastError = null
-    entry.latest = snapshot
+    Object.assign(entry, { lastSuccess: entry.lastAttempt, lastError: null, failCount: 0, queued: false, method, latest: snapshot })
     const books = await getBooks()
     const book = books.find((b) => b.asin === asin)
     if (book && data.title && book.title !== data.title) {
@@ -21,7 +33,11 @@ export async function refreshBook(asin, { timeoutMs } = {}) {
       await saveBooks(books)
     }
   } catch (err) {
-    entry.lastError = err?.name === 'TimeoutError' ? 'Zeitüberschreitung beim Abruf' : String(err?.message || err)
+    entry.lastError = String(err?.message || err)
+    entry.failCount = (entry.failCount || 0) + 1
+    entry.method = err?.method || entry.method
+    // Manueller Abruf zu langsam/abgelehnt → im Hintergrundjob erneut versuchen (der hat mehr Zeit)
+    entry.queued = queueOnFailure && err?.status !== 404
   }
   // Status neu laden, damit parallele Läufe sich nicht überschreiben
   const fresh = await getStatus()
@@ -31,21 +47,21 @@ export async function refreshBook(asin, { timeoutMs } = {}) {
 }
 
 /**
- * Aktualisiert die Bücher, deren letzter erfolgreicher Abruf am längsten zurückliegt,
- * bis das Zeitbudget aufgebraucht ist.
+ * Aktualisiert fällige Bücher (älteste zuerst). Neue Abrufe starten nur innerhalb von `startWindowMs`,
+ * jeder Abruf muss bis `hardDeadline` fertig sein (Scheduled Functions dürfen max. 30 s laufen).
  */
-export async function refreshDue({ budgetMs, minAgeMs }) {
+export async function refreshDue({ startWindowMs = 8000, hardDeadline = Date.now() + 26000 } = {}) {
   const started = Date.now()
   const [books, status] = await Promise.all([getBooks(), getStatus()])
   const due = books
-    .map((b) => ({ asin: b.asin, last: Date.parse(status[b.asin]?.lastSuccess || 0) || 0 }))
-    .filter((b) => started - b.last >= minAgeMs)
-    .sort((a, b) => a.last - b.last)
+    .map((b) => ({ asin: b.asin, at: nextDueAt(status[b.asin]) }))
+    .filter((b) => b.at <= started)
+    .sort((a, b) => a.at - b.at)
   const results = {}
-  for (const { asin } of due) {
-    if (Date.now() - started > budgetMs) break
-    results[asin] = await refreshBook(asin)
-    await sleep(1000 + Math.random() * 2000)
+  for (const [i, { asin }] of due.entries()) {
+    if (Date.now() - started > startWindowMs || hardDeadline - Date.now() < 6000) break
+    if (i > 0) await sleep(1000 + Math.random() * 2000)
+    results[asin] = await refreshBook(asin, { deadline: hardDeadline })
   }
-  return results
+  return { results, due: due.length }
 }

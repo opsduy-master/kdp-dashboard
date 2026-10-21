@@ -1,5 +1,7 @@
 import { timingSafeEqual, createHash } from 'node:crypto'
-import { refreshBook } from '../lib/refresh.mjs'
+import { fetchMode, fetchProductHtml, proxyProvider } from '../lib/fetch-amazon.mjs'
+import { refreshBook, refreshIntervalMs } from '../lib/refresh.mjs'
+import { parseProduct, productUrl } from '../lib/scrape.mjs'
 import { mergeSales } from '../lib/sales.mjs'
 import { getBooks, getHistory, getSales, getStatus, saveBooks, saveSales, saveStatus, store } from '../lib/store.mjs'
 
@@ -39,7 +41,8 @@ export default async (req) => {
       const histories = Object.fromEntries(
         await Promise.all(books.map(async (b) => [b.asin, await getHistory(b.asin)])),
       )
-      return json({ books, status, histories, sales, now: new Date().toISOString() })
+      const fetching = { mode: fetchMode(), provider: proxyProvider()?.name || null, intervalHours: refreshIntervalMs() / 3600000 }
+      return json({ books, status, histories, sales, fetching, now: new Date().toISOString() })
     }
 
     if (route === 'books' && method === 'POST') {
@@ -73,8 +76,24 @@ export default async (req) => {
 
     const ref = route.match(/^refresh\/([A-Z0-9]{10})$/i)
     if (ref && method === 'POST') {
-      // Synchrone Functions haben ~10 s Limit, daher kürzerer Timeout
-      return json(await refreshBook(ref[1].toUpperCase(), { timeoutMs: 7000 }))
+      // Synchrone Functions haben ~10 s Limit; was nicht rechtzeitig klappt, übernimmt der Hintergrundjob
+      return json(await refreshBook(ref[1].toUpperCase(), { deadline: Date.now() + 8500, queueOnFailure: true }))
+    }
+
+    const diag = route.match(/^diagnose\/([A-Z0-9]{10})$/i)
+    if (diag && method === 'GET') {
+      const log = []
+      const result = { mode: fetchMode(), provider: proxyProvider()?.name || null, log }
+      try {
+        const { html, method: via } = await fetchProductHtml(productUrl(diag[1].toUpperCase()), { deadline: Date.now() + 8500, log })
+        result.ok = true
+        result.via = via
+        result.parsed = parseProduct(html)
+      } catch (err) {
+        result.ok = false
+        result.error = String(err?.message || err)
+      }
+      return json(result)
     }
 
     if (route === 'sales' && method === 'POST') {

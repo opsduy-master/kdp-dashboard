@@ -9,7 +9,7 @@ export async function getJSON(key, fallback) {
   return v ?? fallback
 }
 
-export const setJSON = (key, value) => store().setJSON(key, value)
+export const setJSON = async (key, value) => store().setJSON(key, value)
 
 export const getBooks = () => getJSON('books', [])
 export const saveBooks = (books) => setJSON('books', books)

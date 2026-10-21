@@ -1,11 +1,8 @@
 import * as cheerio from 'cheerio'
 
-const USER_AGENTS = [
-  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36',
-  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36',
-  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.6 Safari/605.1.15',
-  'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:143.0) Gecko/20100101 Firefox/143.0',
-]
+import { fetchProductHtml, isBlocked } from './fetch-amazon.mjs'
+
+export { isBlocked }
 
 export const productUrl = (asin) => `https://www.amazon.de/dp/${asin}`
 
@@ -20,10 +17,6 @@ export function parseNumber(text) {
   else normalized = cleaned
   const n = Number(normalized)
   return Number.isFinite(n) ? n : null
-}
-
-export function isBlocked(html) {
-  return /validateCaptcha|Geben Sie die angezeigten Zeichen|Enter the characters you see below|api-services-support@amazon\.com/i.test(html)
 }
 
 function firstText($, selectors) {
@@ -126,28 +119,12 @@ export function parseProduct(html) {
   }
 }
 
-/** Lädt die Produktseite (direkt oder über einen optionalen Scraping-Proxy) und parst sie. */
-export async function scrapeProduct(asin, { timeoutMs = 12000 } = {}) {
-  const target = productUrl(asin)
-  const template = process.env.SCRAPER_URL_TEMPLATE
-  const url = template ? template.replace('{url}', encodeURIComponent(target)) : target
-  const res = await fetch(url, {
-    headers: {
-      'User-Agent': USER_AGENTS[Math.floor(Math.random() * USER_AGENTS.length)],
-      Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-      'Accept-Language': 'de-DE,de;q=0.9,en;q=0.6',
-      'Cache-Control': 'no-cache',
-    },
-    redirect: 'follow',
-    signal: AbortSignal.timeout(timeoutMs),
-  })
-  if (res.status === 404) throw new Error('Produkt nicht gefunden (404) – ASIN prüfen')
-  if (!res.ok) throw new Error(`HTTP ${res.status} von Amazon`)
-  const html = await res.text()
-  if (isBlocked(html)) throw new Error('Von Amazon blockiert (Captcha) – wird beim nächsten Lauf erneut versucht')
+/** Lädt die Produktseite und parst sie. `deadline` begrenzt die Gesamtdauer inkl. Wiederholungen. */
+export async function scrapeProduct(asin, { deadline, log } = {}) {
+  const { html, method } = await fetchProductHtml(productUrl(asin), { deadline, log })
   const data = parseProduct(html)
   if (!data.title && data.price == null && data.bsr == null) {
     throw new Error('Seite enthielt keine Produktdaten (evtl. Layout geändert oder blockiert)')
   }
-  return data
+  return { ...data, method }
 }
