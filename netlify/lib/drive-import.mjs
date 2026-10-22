@@ -76,8 +76,11 @@ export async function importFromDrive({ kind = 'sales', force = false, timeoutMs
       await setJSON(k.stateKey, next)
       return { configured: true, kind, unchanged: true, ...next }
     }
-    const { rows, sheetsUsed } = k.parse(readSheets(Buffer.from(body.data, 'base64')))
-    if (!rows.length) throw new Error(`${body.name}: keine Daten erkannt`)
+    const { rows, sheetsUsed, headers } = k.parse(readSheets(Buffer.from(body.data, 'base64')))
+    if (!rows.length) {
+      const cols = (headers?.[0] || []).slice(0, 14).join(', ')
+      throw new Error(`${body.name}: keine Daten erkannt${cols ? ` – unbekanntes Spaltenformat (${cols} …)` : ''}`)
+    }
     const { rows: merged, added, replaced } = k.merge(await k.get(), rows)
     await k.save(merged)
     const next = {

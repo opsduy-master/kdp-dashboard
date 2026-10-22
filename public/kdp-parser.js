@@ -155,13 +155,24 @@ const AD_COLUMNS = {
   matchType: { match: ['übereinstimmungstyp', 'match type'] },
   impressions: { match: [/^impressionen$/, /^impressions$/, 'impressionen', 'impressions'], exclude: ['share', 'anteil'] },
   clicks: { match: [/^klicks$/, /^clicks$/] },
-  spend: { match: [/^ausgaben$/, /^spend$/, 'ausgaben', 'spend', /^kosten$/, /^cost$/], exclude: ['pro klick', 'per click', 'acos', 'umsatzkosten', 'rentabilität', 'return'] },
-  sales: { match: ['umsatz gesamt', 'total sales', 'umsatz', 'sales'], exclude: ['umsatzkosten', 'acos', 'cost of sales'] },
-  orders: { match: ['gesamtaufträge', 'total orders', 'aufträge', 'bestellungen', 'orders'] },
-  units: { match: ['gesamte einheiten', 'total units', 'einheiten', 'units'] },
+  // Alte Konsole: „Ausgaben“/„Spend“, neue Konsole: „Gesamtkosten“/„Total cost“
+  spend: { match: [/^ausgaben$/, /^spend$/, 'gesamtkosten', 'total cost', 'ausgaben', 'spend', /^kosten$/, /^cost$/], exclude: ['pro klick', 'per click', 'acos', 'umsatzkosten', 'rentabilität', 'return', 'roas'] },
+  // Alt: „14 Tage, Umsatz gesamt (€)“, neu: „Verkäufe“/„Sales“
+  sales: { match: ['umsatz gesamt', 'total sales', /^verkäufe$/, /^sales$/, 'umsatz', 'verkäufe', 'sales'], exclude: ['umsatzkosten', 'acos', 'cost of sales', 'roas', 'einheiten', 'units', 'rate'] },
+  // Alt: „Gesamtaufträge in 14 Tagen“, neu: „Käufe“/„Purchases“
+  orders: { match: ['gesamtaufträge', 'total orders', /^käufe$/, /^purchases$/, 'aufträge', 'bestellungen', 'orders'], exclude: ['rate', 'wunschzettel'] },
+  // Alt: „Gesamte Einheiten in 14 Tagen“, neu: „Durch Klicks verkaufte Einheiten“/„Units sold clicks“
+  units: { match: ['gesamte einheiten', 'total units', 'verkaufte einheiten', 'units sold', 'einheiten', 'units'], exclude: ['rate'] },
   kenpRoyalty: { match: ['kenp tantiemen', 'kenp royalties', 'kenp-tantiemen'] },
   kenp: { match: ['kenp'], exclude: ['tantiemen', 'royalt'] },
   currency: { match: ['währung', 'currency'] },
+}
+
+// Automatische Ausrichtungen heißen je nach Konsole „-“ oder „TARGETING_EXPRESSION_PREDEFINED“
+function normMatchType(v) {
+  const m = String(v ?? '').trim()
+  if (!m || m === '-' || m === '–' || /TARGETING_EXPRESSION/i.test(m)) return 'AUTO'
+  return m.toUpperCase()
 }
 
 export const adsKey = (r) => [r.date, r.campaign, r.targeting, r.matchType].join('|')
@@ -173,7 +184,7 @@ export function parseAdsWorkbook(sheets) {
   for (const sheet of sheets) {
     const headerIdx = sheet.rows.slice(0, 15).findIndex((r) => {
       const c = findColumns(r || [], AD_COLUMNS)
-      return c.date !== undefined && c.campaign !== undefined && c.clicks !== undefined && c.spend !== undefined
+      return c.date !== undefined && c.campaign !== undefined && (c.clicks !== undefined || c.impressions !== undefined)
     })
     if (headerIdx === -1) continue
     const cols = findColumns(sheet.rows[headerIdx], AD_COLUMNS)
@@ -189,7 +200,7 @@ export function parseAdsWorkbook(sheets) {
         campaign,
         portfolio: String(get(r, 'portfolio') ?? '').trim(),
         targeting: String(get(r, 'targeting') ?? '').trim() || '–',
-        matchType: String(get(r, 'matchType') ?? '').trim() || '–',
+        matchType: normMatchType(get(r, 'matchType')),
         impressions: toNumber(get(r, 'impressions')),
         clicks: toNumber(get(r, 'clicks')),
         spend: toNumber(get(r, 'spend')),
@@ -206,7 +217,7 @@ export function parseAdsWorkbook(sheets) {
       else agg.set(key, row)
     }
   }
-  return { rows: [...agg.values()], sheetsUsed }
+  return { rows: [...agg.values()], sheetsUsed, headers: sheets.map((sh) => (sh.rows[0] || []).map(String)) }
 }
 
 /** Einfache Ähnlichkeit (gemeinsame Wörter) zwischen Kampagnenname und Buchtitel – für Zuordnungsvorschläge. */

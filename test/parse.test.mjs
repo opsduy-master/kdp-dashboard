@@ -127,3 +127,20 @@ test('Sponsored-Products-Bericht (Amazon Ads, deutsch)', async () => {
   assert.equal(guessBookForCampaign('Was wäre wenn / Kampagne D', books), 'B0HMV9C6BL')
   assert.equal(guessBookForCampaign('Ganz andere Kampagne', books), null)
 })
+
+test('Sponsored-Products-Bericht, neues Konsolen-Format („Gesamtkosten“, „Verkäufe“, „Käufe“)', async () => {
+  const { parseAdsWorkbook } = await import('../public/kdp-parser.js')
+  const { sheets, header } = await import('./fixtures/sponsored-products-de-neu.mjs')
+  const { rows } = parseAdsWorkbook(sheets)
+  assert.equal(rows.length, 7)
+  const r = rows.find((x) => x.date === '2026-10-21' && x.targeting === 'krimi sudoku')
+  assert.deepEqual(
+    { campaign: r.campaign, matchType: r.matchType, impressions: r.impressions, clicks: r.clicks, spend: r.spend, sales: r.sales, kenp: r.kenp, orders: r.orders, units: r.units, currency: r.currency },
+    { campaign: 'Krimi Sodoku / Kampagne A', matchType: 'EXACT', impressions: 3, clicks: 2, spend: 1.1, sales: 12.99, kenp: 35, orders: 1, units: 1, currency: 'EUR' },
+  )
+  assert.ok(header.includes('Gesamtkosten'))
+  // Automatische Ausrichtung: altes („-“) und neues Format landen auf demselben Schlüssel
+  const { sheets: alt } = await import('./fixtures/sponsored-products-de.mjs')
+  assert.equal(rows.find((x) => x.targeting === 'close-match').matchType, 'AUTO')
+  assert.equal(parseAdsWorkbook(alt).rows.find((x) => x.targeting === 'close-match').matchType, 'AUTO')
+})
