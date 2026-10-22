@@ -150,6 +150,37 @@ function adsByBook(rows = filteredAds()) {
   return out
 }
 
+// Ab so vielen Impressionen ist eine CTR aussagekräftig (sonst wäre 1 Impression + 1 Klick = 100 %)
+const MIN_IMPRESSIONS_FOR_CTR = 100
+
+function bestCampaignTiles(periodLabel) {
+  if (!(state.data.ads || []).length) return []
+  const byCampaign = new Map()
+  for (const r of filteredAds()) {
+    if (!byCampaign.has(r.campaign)) byCampaign.set(r.campaign, [])
+    byCampaign.get(r.campaign).push(r)
+  }
+  const camps = [...byCampaign.entries()].map(([name, rs]) => ({ name, a: sumAds(rs) }))
+  const byImpr = camps.filter((c) => c.a.impressions > 0).sort((x, y) => y.a.impressions - x.a.impressions)[0]
+  const withClicks = camps.filter((c) => c.a.clicks > 0)
+  const solid = withClicks.filter((c) => c.a.impressions >= MIN_IMPRESSIONS_FOR_CTR)
+  const byCtr = (solid.length ? solid : withClicks).sort((x, y) => ctr(y.a) - ctr(x.a))[0]
+  return [
+    {
+      label: `Beste Kampagne · Impressionen`,
+      value: byImpr ? fmtNum(byImpr.a.impressions) : '–',
+      sub: byImpr ? `${esc(byImpr.name)}<br>${fmtNum(byImpr.a.clicks)} Klicks · CTR ${pct(ctr(byImpr.a))}` : 'keine Impressionen im Zeitraum',
+    },
+    {
+      label: `Beste Kampagne · CTR`,
+      value: byCtr ? pct(ctr(byCtr.a)) : '–',
+      sub: byCtr
+        ? `${esc(byCtr.name)}<br>${fmtNum(byCtr.a.clicks)} Klicks bei ${fmtNum(byCtr.a.impressions)} Impressionen${solid.length ? '' : ' <span class="muted">(noch wenig Daten)</span>'}`
+        : 'noch keine Klicks im Zeitraum',
+    },
+  ]
+}
+
 function royaltyText(royalty) {
   const entries = Object.entries(royalty).filter(([, v]) => Math.abs(v) > 0.004)
   if (!entries.length) return { main: money(0), rest: '' }
@@ -241,7 +272,7 @@ function renderKpis() {
       sub: [prev && cur.royalty.EUR != null ? deltaHtml((cur.royalty.EUR || 0) - prevEur, { fmt: (v) => money(v) }) + vsPrev : '', rt.rest && `+ ${rt.rest}`].filter(Boolean).join('<br>'),
     },
     ...adTiles,
-    { label: `KENP gelesen · ${periodLabel}`, value: fmtNum(cur.kenp), sub: prev ? deltaHtml(cur.kenp - prev.kenp) + vsPrev : '' },
+    ...bestCampaignTiles(periodLabel),
     {
       label: 'Rezensionen gesamt', value: fmtNum(totalReviews),
       sub: (avgRating ? `Ø ${nf1.format(avgRating)} ★ ` : '') + (reviewsWeekAgo ? deltaHtml(totalReviews - reviewsWeekAgo) + ' in 7 Tagen' : ''),
