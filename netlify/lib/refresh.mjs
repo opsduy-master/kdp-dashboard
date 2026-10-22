@@ -28,9 +28,14 @@ export async function refreshBook(asin, { deadline, queueOnFailure = false } = {
     Object.assign(entry, { lastSuccess: entry.lastAttempt, lastError: null, failCount: 0, queued: false, method, latest: snapshot })
     const books = await getBooks()
     const book = books.find((b) => b.asin === asin)
-    if (book && data.title && book.title !== data.title) {
-      book.title = data.title
-      await saveBooks(books)
+    if (book) {
+      let changed = false
+      if (data.title && book.title !== data.title) { book.title = data.title; changed = true }
+      // ASINs der anderen Ausgaben (Kindle, Taschenbuch, …) übernehmen, damit deren Verkäufe diesem Buch zugeordnet werden
+      for (const f of data.formats || []) {
+        if (f.asin && !(book.ids || []).includes(f.asin)) { book.ids = [...(book.ids || [book.asin]), f.asin]; changed = true }
+      }
+      if (changed) await saveBooks(books)
     }
   } catch (err) {
     entry.lastError = String(err?.message || err)

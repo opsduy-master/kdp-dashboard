@@ -176,7 +176,15 @@
       </label>
       <label>Weitere IDs desselben Buchs (optional)
         <input name="ids" placeholder="eBook-ASIN, Taschenbuch-ISBN … durch Komma getrennt" autocomplete="off">
-        <span class="muted small">Damit Verkäufe aller Ausgaben (eBook, Taschenbuch, Hardcover) diesem Buch zugeordnet werden.</span>
+        <span class="muted small">Damit Verkäufe aller Ausgaben (eBook, Taschenbuch, Hardcover) diesem Buch zugeordnet werden. Wird beim Amazon-Abruf automatisch ergänzt.</span>
+      </label>
+      <label>Angezeigter Preis
+        <select name="priceFormat">
+          <option value="auto">Automatisch (Taschenbuch bevorzugt)</option>
+          <option value="paperback">Taschenbuch</option>
+          <option value="ebook">eBook (Kindle)</option>
+          <option value="hardcover">Gebundene Ausgabe</option>
+        </select>
       </label>
       <p class="error" id="add-error" role="alert"></p>
       <div class="dlg-actions">

@@ -27,18 +27,59 @@ function firstText($, selectors) {
   return ''
 }
 
+// Nur Preise aus der Buybox des angezeigten Produkts – kein seitenweiter Fallback, sonst landet z. B. der Preis
+// aus „Wird oft zusammen gekauft“ oder aus Werbung für ein anderes Buch im Dashboard.
 function parsePrice($) {
   const raw = firstText($, [
     '#corePriceDisplay_desktop_feature_div .a-price:not(.a-text-price) .a-offscreen',
-    '#corePrice_feature_div .a-price .a-offscreen',
+    '#corePrice_feature_div .a-price:not(.a-text-price) .a-offscreen',
+    '#corePrice_desktop .a-price:not(.a-text-price) .a-offscreen',
+    '#apex_desktop .a-price:not(.a-text-price) .a-offscreen',
+    '#newBuyBoxPrice',
     '#kindle-price',
     '#price',
-    '#tmmSwatches .a-button-selected .slot-price',
-    '#tmmSwatches .a-button-selected .a-color-price',
-    '#booksHeaderSection + * .a-price .a-offscreen',
-    '.a-price .a-offscreen',
+    '#buybox .a-price:not(.a-text-price) .a-offscreen',
   ])
   return parseNumber(raw)
+}
+
+/** Normiert Formatnamen der Ausgaben-Kacheln: Kindle/eBook, Taschenbuch, gebundene Ausgabe, Hörbuch. */
+export function formatKey(name) {
+  const n = String(name || '').toLowerCase()
+  if (/kindle|ebook|e-book/.test(n)) return 'ebook'
+  if (/taschenbuch|paperback|broschiert/.test(n)) return 'paperback'
+  if (/gebunden|hardcover/.test(n)) return 'hardcover'
+  if (/hörbuch|audible|audio/.test(n)) return 'audio'
+  return null
+}
+
+/**
+ * Liest alle Ausgaben aus den Format-Kacheln (Kindle, Taschenbuch, …) mit Preis und – falls verlinkt – ASIN.
+ * Unterstützt das neue Raster (#tmm-grid-swatch-*) und die ältere Liste (#tmmSwatches li.swatchElement).
+ */
+const isSelected = (e) => /(^|\s)selected(\s|$)/.test(e.attr('class') || '')
+
+export function parseFormats($) {
+  const out = []
+  const push = (name, priceText, href, selected) => {
+    const key = formatKey(name)
+    if (!key || out.some((f) => f.key === key)) return
+    const asin = String(href || '').match(/\/dp\/([A-Z0-9]{10})/)?.[1] || null
+    out.push({ key, name: name.replace(/\s+/g, ' ').trim(), price: parseNumber(priceText), asin, selected })
+  }
+  $('[id^="tmm-grid-swatch-"]').each((_, el) => {
+    const e = $(el)
+    const title = e.find('.slot-title').first().text() || e.find('[aria-label$="Format:"]').first().text()
+    const price = e.find('.slot-price').first().text()
+    push(title, price, e.find('a[href*="/dp/"]').attr('href'), isSelected(e))
+  })
+  $('#tmmSwatches li.swatchElement, #tmmSwatches .swatchElement').each((_, el) => {
+    const e = $(el)
+    const title = e.find('.a-button-text > span').first().text() || e.find('a span').first().text()
+    const price = e.find('.a-color-price, .slot-price, .a-color-secondary').first().text()
+    push(title, price, e.find('a[href*="/dp/"]').attr('href'), isSelected(e) || e.find('.a-button-selected').length > 0)
+  })
+  return out
 }
 
 function parseRating($) {
@@ -112,6 +153,7 @@ export function parseProduct(html) {
     image,
     format: parseFormat($),
     price: parsePrice($),
+    formats: parseFormats($),
     currency: 'EUR',
     rating: parseRating($),
     reviews: parseReviewCount($),

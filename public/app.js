@@ -286,6 +286,31 @@ function renderKpis() {
     `<div class="kpi"><div class="label">${t.label}</div><div class="value">${t.value}</div><div class="sub">${t.sub || '&nbsp;'}</div></div>`).join('')
 }
 
+const FORMAT_LABEL = { paperback: 'Taschenbuch', ebook: 'eBook', hardcover: 'Gebunden', audio: 'Hörbuch' }
+
+/** Preis der gewünschten Ausgabe: laut Buch-Einstellung, sonst Taschenbuch > gebunden > Preis der abgerufenen Seite. */
+function displayPrice(book, l) {
+  const formats = l.formats || []
+  const pref = book.priceFormat || 'auto'
+  const order = pref === 'auto' ? ['paperback', 'hardcover'] : [pref]
+  for (const key of order) {
+    const f = formats.find((x) => x.key === key && x.price != null)
+    if (f) return { price: f.price, key }
+  }
+  // Seite selbst ist die gewünschte (oder einzige) Ausgabe
+  const pageKey = formats.find((x) => x.selected)?.key || null
+  if (l.price != null && (pref === 'auto' || pageKey === pref || !pageKey)) return { price: l.price, key: pageKey }
+  return null
+}
+
+function priceCell(book, l) {
+  const p = displayPrice(book, l)
+  if (!p) return '–'
+  const others = (l.formats || []).filter((f) => f.key !== p.key && f.price != null && f.key !== 'audio')
+  return `${money(p.price, l.currency)}${p.key ? `<br><span class="muted small">${FORMAT_LABEL[p.key]}</span>` : ''}` +
+    (others.length ? `<br><span class="muted small nowrap">${others.map((f) => `${FORMAT_LABEL[f.key]} ${money(f.price)}`).join(' · ')}</span>` : '')
+}
+
 function stars(r) {
   if (r == null) return ''
   const full = Math.round(r)
@@ -321,7 +346,7 @@ function renderTable() {
           <div class="book-title"><span class="swatch" style="background:${seriesColor(i)}"></span>${esc(title)}</div>
           <div class="book-meta"><a href="https://www.amazon.de/dp/${b.asin}" target="_blank" rel="noopener noreferrer">${b.asin}</a>${l.format ? ' · ' + esc(l.format) : ''}</div>
         </div></div></td>
-      <td class="num">${l.price != null ? money(l.price, l.currency) : '–'}</td>
+      <td class="num">${priceCell(b, l)}</td>
       <td class="num">${l.rating != null ? `${nf1.format(l.rating)} ${stars(l.rating)}` : '–'}</td>
       <td class="num">${fmtNum(l.reviews)}<br>${d7 && l.reviews != null && d7.reviews != null ? `<span class="nowrap">${deltaHtml(l.reviews - d7.reviews)} <span class="muted small">7 T.</span></span>` : ''}</td>
       <td class="num"><strong>${l.bsr ? '#' + fmtNum(l.bsr) : '–'}</strong><br>${d24 && l.bsr && d24.bsr ? `<span class="nowrap">${deltaHtml(l.bsr - d24.bsr, { goodWhenNegative: true })} <span class="muted small">24 h</span></span>` : ''}</td>
@@ -672,6 +697,7 @@ function openBookDialog(book) {
     f.asin.value = book.asin
     f.label.value = book.label || ''
     f.ids.value = (book.ids || []).filter((x) => x !== book.asin).join(', ')
+    f.priceFormat.value = book.priceFormat || 'auto'
   }
   $('#dlg-add').showModal()
 }
@@ -685,7 +711,7 @@ $('#add-submit').addEventListener('click', async (e) => {
   const asin = f.asin.value.trim().toUpperCase()
   const isNew = !state.data.books.some((b) => b.asin === asin)
   try {
-    await api('books', { method: 'POST', body: JSON.stringify({ asin, label: f.label.value.trim(), ids: f.ids.value }) })
+    await api('books', { method: 'POST', body: JSON.stringify({ asin, label: f.label.value.trim(), ids: f.ids.value, priceFormat: f.priceFormat.value }) })
     $('#dlg-add').close()
     await load()
     if (isNew) refreshAll([asin], { withDrive: false })
@@ -839,7 +865,8 @@ $('#btn-diag').addEventListener('click', async () => {
     const p = r.parsed
     out.innerHTML = `<p><strong>${r.ok ? `✓ Erfolgreich (${esc(r.via)})` : '⚠ Fehlgeschlagen'}</strong>${r.error ? ` – ${esc(r.error)}` : ''}</p>
       <table class="diag"><thead><tr><th>Schritt</th><th class="num">HTTP</th><th class="num">Dauer</th><th>Ergebnis</th></tr></thead><tbody>${steps}</tbody></table>
-      ${p ? `<p class="muted">Gelesen: Preis ${p.price != null ? money(p.price) : '–'} · Bewertung ${p.rating != null ? nf1.format(p.rating) : '–'} · Rezensionen ${fmtNum(p.reviews)} · BSR ${p.bsr ? '#' + fmtNum(p.bsr) : '–'}</p>` : ''}`
+      ${p ? `<p class="muted">Gelesen: Preis ${p.price != null ? money(p.price) : '–'} · Bewertung ${p.rating != null ? nf1.format(p.rating) : '–'} · Rezensionen ${fmtNum(p.reviews)} · BSR ${p.bsr ? '#' + fmtNum(p.bsr) : '–'}</p>
+      <p class="muted">Ausgaben: ${(p.formats || []).length ? p.formats.map((f) => `${FORMAT_LABEL[f.key] || esc(f.name)} ${f.price != null ? money(f.price) : '–'}${f.asin ? ` (${f.asin})` : ''}${f.selected ? ' ← diese Seite' : ''}`).join(' · ') : 'keine Format-Kacheln gefunden'}</p>` : ''}`
   } catch (err) {
     out.innerHTML = `<p class="error">${esc(err.message)}</p>`
   } finally {

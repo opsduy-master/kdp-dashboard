@@ -144,3 +144,38 @@ test('Sponsored-Products-Bericht, neues Konsolen-Format („Gesamtkosten“, „
   assert.equal(rows.find((x) => x.targeting === 'close-match').matchType, 'AUTO')
   assert.equal(parseAdsWorkbook(alt).rows.find((x) => x.targeting === 'close-match').matchType, 'AUTO')
 })
+
+// Kindle-Produktseite mit Format-Kacheln (neues Raster) und einem fremden Preis im Karussell
+const KINDLE_PAGE = `<html><body>
+<span id="productTitle">Was wäre, wenn...?: Das Buch für Teenager ab 12</span>
+<span id="productSubtitle">Kindle Ausgabe</span>
+<div id="tmmSwatches">
+  <div id="tmm-grid-swatch-KINDLE" class="a-row swatchElement selected">
+    <a href="javascript:void(0)"><span class="slot-title"><span aria-label="Kindle Format:">Kindle</span></span>
+    <span class="slot-price"><span aria-label="0,99 €">0,99 €</span></span></a></div>
+  <div id="tmm-grid-swatch-PAPERBACK" class="a-row swatchElement">
+    <a href="/Was-w%C3%A4re-wenn/dp/B0HPAPER12/ref=tmm_pap_swatch_0"><span class="slot-title"><span aria-label="Taschenbuch Format:">Taschenbuch</span></span>
+    <span class="slot-price"><span aria-label="12,99 €">12,99 €</span></span></a></div>
+</div>
+<div id="kindle-price">0,99 €</div>
+<div id="sp_detail"><span class="a-price"><span class="a-offscreen">7,49 €</span></span></div>
+</body></html>`
+
+// Ältere Taschenbuch-Seite mit Listen-Kacheln, ohne Buybox-Preis
+const PAPERBACK_OLD = `<html><body>
+<span id="productTitle">Krimi Sudoku</span>
+<div id="tmmSwatches"><ul>
+  <li class="swatchElement unselected"><span class="a-button"><a class="a-button-text" href="/dp/B0HKINDLE1"><span>Kindle</span><br><span class="a-color-secondary">2,99 €</span></a></span></li>
+  <li class="swatchElement selected"><span class="a-button a-button-selected"><a class="a-button-text" href="javascript:void(0)"><span>Taschenbuch</span><br><span class="a-color-price">14,99 €</span></a></span></li>
+</ul></div>
+<div class="similarities"><span class="a-price"><span class="a-offscreen">9,95 €</span></span></div>
+</body></html>`
+
+test('Preise: Ausgaben-Kacheln, kein fremder Karussell-Preis', () => {
+  const k = parseProduct(KINDLE_PAGE)
+  assert.equal(k.price, 0.99)
+  assert.deepEqual(k.formats.map((f) => [f.key, f.price, f.asin, f.selected]), [['ebook', 0.99, null, true], ['paperback', 12.99, 'B0HPAPER12', false]])
+  const p = parseProduct(PAPERBACK_OLD)
+  assert.equal(p.price, null) // früher: 9,95 € aus „Ähnliche Artikel“
+  assert.deepEqual(p.formats.map((f) => [f.key, f.price, f.asin, f.selected]), [['ebook', 2.99, 'B0HKINDLE1', false], ['paperback', 14.99, null, true]])
+})

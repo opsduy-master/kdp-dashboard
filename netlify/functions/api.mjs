@@ -22,6 +22,7 @@ function authorized(req) {
 }
 
 const ASIN_RE = /^[A-Z0-9]{10}$/
+const PRICE_FORMATS = ['auto', 'paperback', 'ebook', 'hardcover']
 const normalizeIds = (ids) =>
   [...new Set((Array.isArray(ids) ? ids : String(ids || '').split(/[\s,;]+/))
     .map((s) => String(s).trim().toUpperCase().replace(/-/g, ''))
@@ -56,8 +57,12 @@ export default async (req) => {
       if (existing) {
         existing.ids = ids
         if (body.label !== undefined) existing.label = String(body.label).slice(0, 120)
+        if (body.priceFormat !== undefined) existing.priceFormat = PRICE_FORMATS.includes(body.priceFormat) ? body.priceFormat : 'auto'
       } else {
-        books.push({ asin, ids, label: String(body.label || '').slice(0, 120), added: new Date().toISOString() })
+        books.push({
+          asin, ids, label: String(body.label || '').slice(0, 120), added: new Date().toISOString(),
+          priceFormat: PRICE_FORMATS.includes(body.priceFormat) ? body.priceFormat : 'auto',
+        })
       }
       await saveBooks(books)
       return json({ books })
