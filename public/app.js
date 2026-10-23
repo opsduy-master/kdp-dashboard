@@ -354,6 +354,7 @@ function renderTable() {
       <td class="num">${fmtNum(s.units)}</td>
       <td class="num">${fmtNum(s.kenp)}</td>
       <td class="num">${rt.main}${rt.rest ? `<br><span class="muted small">+ ${rt.rest}</span>` : ''}</td>
+      <td class="num">${a ? `${fmtNum(a.impressions)}<br><span class="muted small nowrap">${fmtNum(a.clicks)} Klicks · CTR ${pct(ctr(a))}</span>` : '–'}</td>
       <td class="num">${a ? money(a.spend, a.currency) : '–'}</td>
       <td class="num">${a ? acosText(a) : '–'}</td>
       <td><span class="small">${rel(st.lastSuccess)}</span>${st.lastError ? `<br><span class="status-err" title="${esc(st.lastError)}">⚠ ${esc(shortError(st.lastError))}</span>` : ''}${st.queued ? '<br><span class="muted small">⏳ wird im Hintergrund erneut versucht</span>' : ''}</td>
