@@ -1,6 +1,6 @@
 # KDP Dashboard
 
-Ein privates Dashboard für deine Bücher auf **amazon.de**: Preis, Bewertung, Anzahl der Rezensionen,
+Ein privates Dashboard für deine Bücher auf **amazon.de** und **amazon.com**: Preis, Bewertung, Anzahl der Rezensionen,
 BSR (Haupt- und Unterkategorien) und Verkäufe, Tantiemen und KENP auf einer Seite, ohne Amazon oder KDP öffnen zu müssen.
 
 - **Amazon-Daten** (Preis, Bewertung, Rezensionen, BSR) werden automatisch abgerufen: Alle 15 Minuten läuft ein Job,
@@ -65,6 +65,20 @@ neueste `Sponsored_Products*.xlsx` aus dem Google-Drive-Ordner (dafür Apps Scri
   Kampagnennamens ein Buch vor, mit **✓ Übernehmen** wird die Zuordnung gespeichert. Erst dann erscheinen Werbekosten und ACOS in der
   Bücher-Tabelle.
 - Die Kennzahl **„Ergebnis nach Werbung“** ist Tantiemen (EUR) minus Werbekosten im gewählten Zeitraum.
+
+## Bücher auf amazon.com (USD)
+
+- Beim Hinzufügen (**+ Buch**) oder Bearbeiten (✎) den **Marktplatz** wählen: *amazon.de* oder *amazon.com*. Preis, Bewertungen und BSR
+  werden dann von der jeweiligen Produktseite gelesen (US-Zahlenformat, Preise in USD). Bestehende Bücher bleiben auf amazon.de.
+- Verkäufe von Amazon.com kommen wie gewohnt aus dem KDP-Bericht (Spalte *Marketplace*/*Währung*; fehlt die Währung, wird sie aus dem
+  Marktplatz abgeleitet).
+- **Umrechnung in EUR:** Tantiemen, Werbekosten und „Ergebnis nach Werbung“ werden zum aktuellen **EZB-Referenzkurs** in EUR summiert
+  (abgerufen höchstens alle 12 Stunden, angezeigt unter **⚙ → Wechselkurs**). Der Originalbetrag in USD steht jeweils darunter.
+  Einen festen Kurs kannst du per Umgebungsvariable setzen, z. B. `FX_USD=1.08` (USD pro 1 EUR).
+- **US-Werbebericht aus Google Drive:** Den Sponsored-Products-Bericht der US-Konsole mit `US_` vor dem Namen ablegen
+  (z. B. `US_Sponsored_Products_Targeting.xlsx`) und das Apps Script in **Version 4** bereitstellen. Hochladen über **⇪ KDP-Report** geht auch ohne.
+  Kampagnen danach wie gewohnt dem US-Buch zuordnen.
+- Mit einem Scraping-Dienst laufen amazon.com-Abrufe automatisch über US-IPs.
 
 ## Wenn Amazon blockiert (HTTP 503 / Captcha)
 

@@ -13,7 +13,7 @@ export default async () => {
     const { sales } = await getDriveState()
     if (!sales.checkedAt || start - Date.parse(sales.checkedAt) >= DRIVE_CHECK_EVERY_MS) {
       const r = await importAllFromDrive({ timeoutMs: 8000 })
-      for (const x of [r.sales, r.ads]) {
+      for (const x of [r.sales, r.ads, r.adsUs]) {
         console.log(`Drive-Import (${x.kind}):`, x.error || (x.notFound ? 'keine Datei' : x.unchanged ? 'unverändert' : `${x.name}: ${x.added} neu, ${x.replaced} aktualisiert`))
       }
     }

@@ -42,6 +42,18 @@ const isoDay = (d) => {
   const x = new Date(d)
   return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}`
 }
+// ---------- Marktplätze & Währungen ----------
+const MARKETS = {
+  de: { label: 'amazon.de', host: 'www.amazon.de', flag: '🇩🇪' },
+  com: { label: 'amazon.com', host: 'www.amazon.com', flag: '🇺🇸' },
+}
+const marketOf = (book) => MARKETS[book?.marketplace] || MARKETS.de
+
+/** Kurs „Einheiten pro 1 EUR“ (EZB), z. B. USD 1,08. */
+const fxRate = (cur) => (!cur || cur === 'EUR' ? 1 : state.data?.fx?.rates?.[cur] || null)
+/** Betrag in EUR umrechnen; null, wenn für die Währung kein Kurs vorliegt. */
+const toEur = (v, cur) => { const r = fxRate(cur); return r ? v / r : null }
+
 const cssVar = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim()
 const seriesColor = (i) => (i < 8 ? cssVar(`--s${i + 1}`) : cssVar('--muted'))
 
@@ -104,12 +116,14 @@ function idToBook() {
 }
 
 function sumSales(rows) {
-  const out = { units: 0, kenp: 0, royalty: {} }
+  const out = { units: 0, kenp: 0, royalty: {}, eur: 0 }
   for (const r of rows) {
     out.units += r.units
     out.kenp += r.kenp
     if (r.royalty) out.royalty[r.currency || 'EUR'] = (out.royalty[r.currency || 'EUR'] || 0) + r.royalty
   }
+  // Summe in EUR (Fremdwährungen zum aktuellen EZB-Kurs); Währungen ohne Kurs bleiben außen vor
+  for (const [cur, v] of Object.entries(out.royalty)) out.eur += toEur(v, cur) ?? 0
   return out
 }
 
@@ -119,11 +133,27 @@ function filteredAds({ from = rangeStart(), to = null } = {}) {
 }
 
 const AD_FIELDS = ['impressions', 'clicks', 'spend', 'sales', 'orders', 'units', 'kenp', 'kenpRoyalty']
+const AD_MONEY = new Set(['spend', 'sales', 'kenpRoyalty'])
+/** Summiert Werbezeilen. Eine Währung → Beträge in dieser Währung; gemischt (DE + USA) → alles in EUR umgerechnet. */
 function sumAds(rows) {
   const out = Object.fromEntries(AD_FIELDS.map((f) => [f, 0]))
-  out.currency = rows[0]?.currency || 'EUR'
-  for (const r of rows) for (const f of AD_FIELDS) out[f] += r[f] || 0
+  const currencies = new Set(rows.map((r) => r.currency || 'EUR'))
+  out.currency = currencies.size === 1 ? [...currencies][0] : 'EUR'
+  out.mixed = currencies.size > 1
+  for (const r of rows) {
+    for (const f of AD_FIELDS) {
+      const v = r[f] || 0
+      out[f] += out.mixed && AD_MONEY.has(f) ? toEur(v, r.currency || 'EUR') ?? 0 : v
+    }
+  }
+  out.spendEur = out.currency === 'EUR' ? out.spend : toEur(out.spend, out.currency) ?? 0
   return out
+}
+/** Betrag in Originalwährung, bei Fremdwährung mit EUR-Wert dahinter. */
+const moneyEur = (v, cur) => {
+  if (!cur || cur === 'EUR') return money(v)
+  const eur = toEur(v, cur)
+  return `${money(v, cur)}${eur != null ? ` <span class="muted small nowrap">≈ ${money(eur)}</span>` : ''}`
 }
 
 const pct = (v) => (v == null || !Number.isFinite(v) ? '–' : `${nf1.format(v * 100)} %`)
@@ -181,12 +211,19 @@ function bestCampaignTiles(periodLabel) {
   ]
 }
 
+/**
+ * Tantiemen: Hauptwert ist die Summe in EUR (Fremdwährungen zum EZB-Kurs umgerechnet),
+ * darunter die Beträge in Fremdwährung, z. B. „davon 23,98 $“.
+ */
 function royaltyText(royalty) {
   const entries = Object.entries(royalty).filter(([, v]) => Math.abs(v) > 0.004)
   if (!entries.length) return { main: money(0), rest: '' }
-  entries.sort((a, b) => (a[0] === 'EUR' ? -1 : b[0] === 'EUR' ? 1 : b[1] - a[1]))
-  const [[cur, val], ...rest] = entries
-  return { main: money(val, cur), rest: rest.map(([c, v]) => money(v, c)).join(' · ') }
+  const foreign = entries.filter(([c]) => c !== 'EUR').sort((a, b) => b[1] - a[1])
+  const eur = entries.reduce((s, [c, v]) => s + (toEur(v, c) ?? 0), 0)
+  const missing = foreign.filter(([c]) => !fxRate(c))
+  const main = foreign.length ? `${foreign.length === entries.length && !missing.length ? '≈ ' : ''}${money(eur)}` : money(eur)
+  const rest = foreign.map(([c, v]) => `${fxRate(c) ? 'davon' : '+'} ${money(v, c)}${fxRate(c) ? '' : ' (kein Kurs)'}`).join(' · ')
+  return { main, rest }
 }
 
 function deltaHtml(diff, { goodWhenNegative = false, suffix = '', fmt = fmtNum } = {}) {
@@ -236,7 +273,7 @@ function renderKpis() {
     prev = sumSales(filteredSales({ from, to }))
   }
   const rt = royaltyText(cur.royalty)
-  const prevEur = prev ? prev.royalty.EUR || 0 : null
+  const prevEur = prev ? prev.eur : null
 
   const latest = state.data.books.map((b) => ({ b, l: latestOf(b.asin) })).filter((x) => x.l)
   const totalReviews = latest.reduce((s, x) => s + (x.l.reviews || 0), 0)
@@ -247,6 +284,10 @@ function renderKpis() {
     return old?.reviews != null ? s + old.reviews : s
   }, 0)
   const best = latest.filter((x) => x.l.bsr).sort((a, b) => a.l.bsr - b.l.bsr)[0]
+  const fx = state.data.fx || {}
+  const usd = fx.rates?.USD
+  const fxNote = Object.keys(cur.royalty).some((c) => c !== 'EUR') && usd
+    ? `<span class="muted small">1 € = ${nf.format(usd)} $ (EZB${fx.date ? ` ${new Date(fx.date).toLocaleDateString('de-DE')}` : ''})</span>` : ''
   const periodLabel = state.days ? `letzte ${state.days === 365 ? '12 Monate' : state.days + ' Tage'}` : 'gesamt'
   const vsPrev = prev ? ' ggü. Vorperiode' : ''
 
@@ -257,11 +298,12 @@ function renderKpis() {
     {
       label: `Werbekosten · ${periodLabel}`, value: money(ads.spend, ads.currency),
       sub: [`ACOS ${acosText(ads)} · ${fmtNum(ads.clicks)} Klicks · ${fmtNum(ads.orders)} Bestellungen`,
-        prevAds ? deltaHtml(ads.spend - prevAds.spend, { goodWhenNegative: true, fmt: (v) => money(v, ads.currency) }) + vsPrev : ''].filter(Boolean).join('<br>'),
+        ads.mixed ? '<span class="muted small">amazon.de + amazon.com, USD in EUR umgerechnet</span>' : '',
+        prevAds ? deltaHtml(ads.spendEur - prevAds.spendEur, { goodWhenNegative: true, fmt: (v) => money(v) }) + vsPrev : ''].filter(Boolean).join('<br>'),
     },
     {
-      label: `Ergebnis nach Werbung · ${periodLabel}`, value: money((cur.royalty.EUR || 0) - (ads.currency === 'EUR' ? ads.spend : 0)),
-      sub: 'Tantiemen (EUR) minus Werbekosten',
+      label: `Ergebnis nach Werbung · ${periodLabel}`, value: money(cur.eur - ads.spendEur),
+      sub: 'Tantiemen minus Werbekosten, alles in EUR',
     },
   ]
 
@@ -269,7 +311,7 @@ function renderKpis() {
     { label: `Verkaufte Einheiten · ${periodLabel}`, value: fmtNum(cur.units), sub: prev ? deltaHtml(cur.units - prev.units) + vsPrev : '' },
     {
       label: `Tantiemen · ${periodLabel}`, value: rt.main,
-      sub: [prev && cur.royalty.EUR != null ? deltaHtml((cur.royalty.EUR || 0) - prevEur, { fmt: (v) => money(v) }) + vsPrev : '', rt.rest && `+ ${rt.rest}`].filter(Boolean).join('<br>'),
+      sub: [prev ? deltaHtml(cur.eur - prevEur, { fmt: (v) => money(v) }) + vsPrev : '', rt.rest, fxNote].filter(Boolean).join('<br>'),
     },
     ...adTiles,
     ...bestCampaignTiles(periodLabel),
@@ -279,7 +321,7 @@ function renderKpis() {
     },
     {
       label: 'Bester BSR', value: best ? `#${fmtNum(best.l.bsr)}` : '–',
-      sub: best ? esc(best.b.label || best.l.title || best.b.asin) : 'noch keine Daten',
+      sub: best ? `${esc(best.b.label || best.l.title || best.b.asin)} · ${marketOf(best.b).label}` : 'noch keine Daten',
     },
   ]
   $('#kpis').innerHTML = tiles.map((t) =>
@@ -308,7 +350,7 @@ function priceCell(book, l) {
   if (!p) return '–'
   const others = (l.formats || []).filter((f) => f.key !== p.key && f.price != null && f.key !== 'audio')
   return `${money(p.price, l.currency)}${p.key ? `<br><span class="muted small">${FORMAT_LABEL[p.key]}</span>` : ''}` +
-    (others.length ? `<br><span class="muted small nowrap">${others.map((f) => `${FORMAT_LABEL[f.key]} ${money(f.price)}`).join(' · ')}</span>` : '')
+    (others.length ? `<br><span class="muted small nowrap">${others.map((f) => `${FORMAT_LABEL[f.key]} ${money(f.price, l.currency)}`).join(' · ')}</span>` : '')
 }
 
 function stars(r) {
@@ -344,7 +386,7 @@ function renderTable() {
         ${l.image ? `<img src="${esc(l.image)}" alt="" loading="lazy" referrerpolicy="no-referrer">` : '<div class="ph"></div>'}
         <div>
           <div class="book-title"><span class="swatch" style="background:${seriesColor(i)}"></span>${esc(title)}</div>
-          <div class="book-meta"><a href="https://www.amazon.de/dp/${b.asin}" target="_blank" rel="noopener noreferrer">${b.asin}</a>${l.format ? ' · ' + esc(l.format) : ''}</div>
+          <div class="book-meta"><span class="badge market" title="${marketOf(b).label}">${marketOf(b).flag} ${marketOf(b).label.replace('amazon', '')}</span> <a href="https://${marketOf(b).host}/dp/${b.asin}" target="_blank" rel="noopener noreferrer">${b.asin}</a>${l.format ? ' · ' + esc(l.format) : ''}</div>
         </div></div></td>
       <td class="num">${priceCell(b, l)}</td>
       <td class="num">${l.rating != null ? `${nf1.format(l.rating)} ${stars(l.rating)}` : '–'}</td>
@@ -353,9 +395,9 @@ function renderTable() {
       <td class="cat">${top ? `#${fmtNum(top.rank)} in ${esc(top.category)}` : '–'}</td>
       <td class="num">${fmtNum(s.units)}</td>
       <td class="num">${fmtNum(s.kenp)}</td>
-      <td class="num">${rt.main}${rt.rest ? `<br><span class="muted small">+ ${rt.rest}</span>` : ''}</td>
+      <td class="num">${rt.main}${rt.rest ? `<br><span class="muted small nowrap">${rt.rest}</span>` : ''}</td>
       <td class="num">${a ? `${fmtNum(a.impressions)}<br><span class="muted small nowrap">${fmtNum(a.clicks)} Klicks · CTR ${pct(ctr(a))}</span>` : '–'}</td>
-      <td class="num">${a ? money(a.spend, a.currency) : '–'}</td>
+      <td class="num">${a ? moneyEur(a.spend, a.currency) : '–'}</td>
       <td class="num">${a ? acosText(a) : '–'}</td>
       <td><span class="small">${rel(st.lastSuccess)}</span>${st.lastError ? `<br><span class="status-err" title="${esc(st.lastError)}">⚠ ${esc(shortError(st.lastError))}</span>` : ''}${st.queued ? '<br><span class="muted small">⏳ wird im Hintergrund erneut versucht</span>' : ''}</td>
       <td><button class="btn icon" data-edit="${b.asin}" title="Bearbeiten" aria-label="Bearbeiten">✎</button><button class="btn icon" data-del="${b.asin}" title="Entfernen" aria-label="Entfernen">✕</button></td>
@@ -417,7 +459,7 @@ function renderAds() {
       <td class="num">${fmtNum(a.clicks)}</td>
       <td class="num">${pct(ctr(a))}</td>
       <td class="num">${cpc(a) != null ? money(cpc(a), a.currency) : '–'}</td>
-      <td class="num">${money(a.spend, a.currency)}</td>
+      <td class="num">${moneyEur(a.spend, a.currency)}</td>
       <td class="num">${money(a.sales, a.currency)}</td>
       <td class="num">${acosText(a)}</td>
       <td class="num">${fmtNum(a.orders)}</td>
@@ -573,7 +615,10 @@ function renderCharts() {
   barChart('chart-kenp', 'kenp', 'KENP-Seiten', 'kenp-sub')
   lineChart('chart-bsr', 'bsr', { reverseLog: true })
   lineChart('chart-reviews', 'reviews')
-  if ((state.data.ads || []).length) barChart('chart-ads', 'spend', 'Werbekosten', null, { rows: filteredAds(), fmt: (v) => money(v) })
+  if ((state.data.ads || []).length) {
+    const rows = filteredAds().map((r) => ({ date: r.date, spend: toEur(r.spend, r.currency || 'EUR') ?? 0 }))
+    barChart('chart-ads', 'spend', 'Werbekosten (EUR)', null, { rows, fmt: (v) => money(v) })
+  }
 }
 
 // ---------- Laden ----------
@@ -602,7 +647,7 @@ function driveResultText(r) {
     if (x.unchanged) return `${label} unverändert.`
     return ''
   }
-  return [one(r.sales, 'KDP-Bericht'), one(r.ads, 'Werbebericht')].filter(Boolean).join(' ')
+  return [one(r.sales, 'KDP-Bericht'), one(r.ads, 'Werbebericht'), one(r.adsUs, 'Werbebericht USA')].filter(Boolean).join(' ')
 }
 
 async function importDrive({ force = false } = {}) {
@@ -699,6 +744,7 @@ function openBookDialog(book) {
     f.label.value = book.label || ''
     f.ids.value = (book.ids || []).filter((x) => x !== book.asin).join(', ')
     f.priceFormat.value = book.priceFormat || 'auto'
+    f.marketplace.value = book.marketplace || 'de'
   }
   $('#dlg-add').showModal()
 }
@@ -712,7 +758,7 @@ $('#add-submit').addEventListener('click', async (e) => {
   const asin = f.asin.value.trim().toUpperCase()
   const isNew = !state.data.books.some((b) => b.asin === asin)
   try {
-    await api('books', { method: 'POST', body: JSON.stringify({ asin, label: f.label.value.trim(), ids: f.ids.value, priceFormat: f.priceFormat.value }) })
+    await api('books', { method: 'POST', body: JSON.stringify({ asin, label: f.label.value.trim(), ids: f.ids.value, priceFormat: f.priceFormat.value, marketplace: f.marketplace.value }) })
     $('#dlg-add').close()
     await load()
     if (isNew) refreshAll([asin], { withDrive: false })
@@ -761,7 +807,7 @@ async function handleFile(file) {
     pendingRows = rows
     $('#upload-preview').innerHTML = `<strong>${fmtNum(rows.length)} Datensätze</strong> erkannt
       (${new Date(dates[0]).toLocaleDateString('de-DE')} – ${new Date(dates[dates.length - 1]).toLocaleDateString('de-DE')})<br>
-      ${fmtNum(s.units)} Einheiten · ${fmtNum(s.kenp)} KENP · ${royaltyText(s.royalty).main}${royaltyText(s.royalty).rest ? ' + ' + royaltyText(s.royalty).rest : ''}<br>
+      ${fmtNum(s.units)} Einheiten · ${fmtNum(s.kenp)} KENP · ${royaltyText(s.royalty).main}${royaltyText(s.royalty).rest ? ' (' + royaltyText(s.royalty).rest + ')' : ''}<br>
       <span class="muted">Blätter: ${sheetsUsed.map(esc).join(', ')}${skipped.length ? ` · übersprungen: ${skipped.map(esc).join(', ')}` : ''}</span>`
     $('#upload-submit').disabled = false
   } catch (err) {
@@ -808,6 +854,11 @@ $('#btn-settings').addEventListener('click', () => {
     ? `${fmtNum(n)} Verkaufsdatensätze gespeichert (${dates[0]} bis ${dates[dates.length - 1]}).`
     : 'Noch keine Verkaufsdaten importiert.') + (nAds ? ` ${fmtNum(nAds)} Werbedatensätze gespeichert.` : '')
   $('#fetch-info').textContent = fetchingText().replace(/^Amazon-Abruf: /, '')
+  const fx = state.data.fx || {}
+  $('#fx-info').innerHTML = fx.rates?.USD
+    ? `1 € = ${nf.format(fx.rates.USD)} $ · Quelle ${esc(fx.source || 'EZB')}${fx.date ? `, Kurs vom ${new Date(fx.date).toLocaleDateString('de-DE')}` : ''}. US-Tantiemen und US-Werbekosten werden damit in EUR umgerechnet.` +
+      (fx.error ? `<br><span class="error">⚠ Letzter Abruf fehlgeschlagen, es gilt der gespeicherte Kurs: ${esc(fx.error)}</span>` : '')
+    : `<span class="error">⚠ Noch kein Wechselkurs verfügbar${fx.error ? `: ${esc(fx.error)}` : ''}. USD-Beträge werden bis dahin nicht in EUR mitgezählt.</span>`
   renderDriveInfo()
   $('#diag-asin').innerHTML = state.data.books.map((b) => `<option value="${b.asin}">${esc(b.label || latestOf(b.asin)?.title || b.asin)}</option>`).join('')
   $('#diag-row').hidden = !state.data.books.length
@@ -827,6 +878,9 @@ function renderDriveInfo() {
   $('#drive-info').innerHTML = [
     line(d.sales, 'KDP-Bericht', 'KDP_Dashboard'),
     line(d.ads, 'Werbebericht', 'Sponsored_Products'),
+    d.adsUs?.needsScript
+      ? `<strong>Werbebericht USA:</strong> <span class="muted">Apps Script Version ${d.adsUs.needsScript} nötig (Code aus dem Repo einfügen, neue Version bereitstellen).</span>`
+      : line(d.adsUs, 'Werbebericht USA', 'US_Sponsored_Products'),
     d.sales?.checkedAt ? `<span class="muted">Zuletzt geprüft ${rel(d.sales.checkedAt)}. Wird stündlich und bei „Jetzt aktualisieren“ geprüft.</span>` : '',
   ].filter(Boolean).join('<br>')
 }
@@ -851,7 +905,7 @@ function shortError(msg) {
 
 function fetchingText() {
   const f = state.data.fetching || {}
-  const via = { direct: 'direkt von amazon.de', proxy: `über ${f.provider}`, fallback: `direkt, bei Ablehnung über ${f.provider}` }[f.mode] || 'direkt'
+  const via = { direct: 'direkt von Amazon', proxy: `über ${f.provider}`, fallback: `direkt, bei Ablehnung über ${f.provider}` }[f.mode] || 'direkt'
   return `Amazon-Abruf: ${via}, jedes Buch etwa alle ${nf.format(f.intervalHours || 3)} Std.`
 }
 
@@ -866,8 +920,9 @@ $('#btn-diag').addEventListener('click', async () => {
     const p = r.parsed
     out.innerHTML = `<p><strong>${r.ok ? `✓ Erfolgreich (${esc(r.via)})` : '⚠ Fehlgeschlagen'}</strong>${r.error ? ` – ${esc(r.error)}` : ''}</p>
       <table class="diag"><thead><tr><th>Schritt</th><th class="num">HTTP</th><th class="num">Dauer</th><th>Ergebnis</th></tr></thead><tbody>${steps}</tbody></table>
-      ${p ? `<p class="muted">Gelesen: Preis ${p.price != null ? money(p.price) : '–'} · Bewertung ${p.rating != null ? nf1.format(p.rating) : '–'} · Rezensionen ${fmtNum(p.reviews)} · BSR ${p.bsr ? '#' + fmtNum(p.bsr) : '–'}</p>
-      <p class="muted">Ausgaben: ${(p.formats || []).length ? p.formats.map((f) => `${FORMAT_LABEL[f.key] || esc(f.name)} ${f.price != null ? money(f.price) : '–'}${f.asin ? ` (${f.asin})` : ''}${f.selected ? ' ← diese Seite' : ''}`).join(' · ') : 'keine Format-Kacheln gefunden'}</p>` : ''}`
+      ${r.url ? `<p class="muted small">${esc(r.url)}</p>` : ''}
+      ${p ? `<p class="muted">Gelesen: Preis ${p.price != null ? money(p.price, p.currency) : '–'} · Bewertung ${p.rating != null ? nf1.format(p.rating) : '–'} · Rezensionen ${fmtNum(p.reviews)} · BSR ${p.bsr ? '#' + fmtNum(p.bsr) : '–'}</p>
+      <p class="muted">Ausgaben: ${(p.formats || []).length ? p.formats.map((f) => `${FORMAT_LABEL[f.key] || esc(f.name)} ${f.price != null ? money(f.price, p.currency) : '–'}${f.asin ? ` (${f.asin})` : ''}${f.selected ? ' ← diese Seite' : ''}`).join(' · ') : 'keine Format-Kacheln gefunden'}</p>` : ''}`
   } catch (err) {
     out.innerHTML = `<p class="error">${esc(err.message)}</p>`
   } finally {

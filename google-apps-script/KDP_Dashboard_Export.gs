@@ -1,5 +1,6 @@
 /**
- * Liefert dem KDP-Dashboard die neueste KDP_Dashboard-*.xlsx bzw. Sponsored_Products*.xlsx aus dem Google-Drive-Ordner.
+ * Liefert dem KDP-Dashboard die neueste KDP_Dashboard-*.xlsx, Sponsored_Products*.xlsx bzw. US_Sponsored_Products*.xlsx
+ * (Werbebericht amazon.com) aus dem Google-Drive-Ordner.
  *
  * Einrichtung (einmalig, siehe README):
  *  1. https://script.google.com → Neues Projekt → diesen Code einfügen.
@@ -9,9 +10,9 @@
  */
 const FOLDER_ID = '1QqhLbM0RAVXXT2pcFqCNRViYkGVZEeRA'
 // Erlaubte Dateiarten (Parameter „prefix“), die erste ist der Standard
-const PREFIXES = ['KDP_Dashboard', 'Sponsored_Products']
+const PREFIXES = ['KDP_Dashboard', 'Sponsored_Products', 'US_Sponsored_Products']
 const TOKEN = 'HIER-EIN-LANGES-GEHEIMNIS-EINTRAGEN'
-const SCRIPT_VERSION = 3
+const SCRIPT_VERSION = 4
 
 function doGet(e) {
   const params = (e && e.parameter) || {}

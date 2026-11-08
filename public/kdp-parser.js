@@ -52,6 +52,17 @@ function formatFromSheet(name) {
 
 const pad = (n) => String(n).padStart(2, '0')
 
+// Währung je Amazon-Marktplatz – falls ein Bericht keine Währungsspalte hat
+const MARKET_CURRENCY = [
+  [/amazon\.com\.au$/, 'AUD'], [/amazon\.com\.br$/, 'BRL'], [/amazon\.com\.mx$/, 'MXN'], [/amazon\.com$/, 'USD'],
+  [/amazon\.co\.uk$/, 'GBP'], [/amazon\.ca$/, 'CAD'], [/amazon\.co\.jp$/, 'JPY'], [/amazon\.in$/, 'INR'],
+  [/amazon\.pl$/, 'PLN'], [/amazon\.se$/, 'SEK'], [/amazon\.(de|fr|it|es|nl|ie|be)$/, 'EUR'],
+]
+export function currencyForMarketplace(mp) {
+  const m = norm(mp).replace(/^www\./, '')
+  return MARKET_CURRENCY.find(([re]) => re.test(m))?.[1] || ''
+}
+
 const MONTHS = { jan: 1, feb: 2, mar: 3, mär: 3, mrz: 3, apr: 4, may: 5, mai: 5, jun: 6, jul: 7, aug: 8, sep: 9, oct: 10, okt: 10, nov: 11, dec: 12, dez: 12 }
 const monthIndex = (name) => MONTHS[String(name).toLowerCase().slice(0, 3)] || null
 
@@ -130,6 +141,7 @@ export function parseKdpWorkbook(sheets) {
         royalty: cols.royalty !== undefined ? toNumber(r[cols.royalty]) : 0,
         currency: cols.currency !== undefined ? String(r[cols.currency] ?? '').trim().toUpperCase() : '',
       }
+      row.currency ||= currencyForMarketplace(row.marketplace)
       // Mehrere Zeilen pro Tag/Titel (z. B. 35 %/70 % Tantiemen) zusammenfassen
       const key = [row.date, row.id, row.marketplace, row.format].join('|')
       const prev = agg.get(key)
@@ -188,6 +200,9 @@ export function parseAdsWorkbook(sheets) {
     })
     if (headerIdx === -1) continue
     const cols = findColumns(sheet.rows[headerIdx], AD_COLUMNS)
+    // Ohne Währungsspalte: aus Spaltennamen wie „Spend ($)“ oder „Ausgaben (€)“ ableiten
+    const headerText = sheet.rows[headerIdx].join(' ')
+    const sheetCurrency = /\$|\bUSD\b/.test(headerText) ? 'USD' : /£|\bGBP\b/.test(headerText) ? 'GBP' : 'EUR'
     sheetsUsed.push(sheet.name)
     const get = (r, k) => (cols[k] !== undefined ? r[cols[k]] : '')
     for (const r of sheet.rows.slice(headerIdx + 1)) {
@@ -209,7 +224,7 @@ export function parseAdsWorkbook(sheets) {
         units: toNumber(get(r, 'units')),
         kenp: toNumber(get(r, 'kenp')),
         kenpRoyalty: toNumber(get(r, 'kenpRoyalty')),
-        currency: String(get(r, 'currency') ?? '').trim().toUpperCase() || 'EUR',
+        currency: String(get(r, 'currency') ?? '').trim().toUpperCase() || sheetCurrency,
       }
       const key = adsKey(row)
       const prev = agg.get(key)
