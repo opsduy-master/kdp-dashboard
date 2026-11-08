@@ -1,5 +1,6 @@
 import https from 'node:https'
 import zlib from 'node:zlib'
+import { marketplaceForUrl } from './marketplaces.mjs'
 import { getJSON, setJSON } from './store.mjs'
 
 // Nur Chrome-UAs, damit User-Agent und Client-Hints (sec-ch-ua) zusammenpassen
@@ -8,8 +9,6 @@ const BROWSERS = [
   { ua: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36', platform: '"macOS"' },
   { ua: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36', platform: '"Windows"' },
 ]
-const HOME = 'https://www.amazon.de/'
-const SESSION_KEY = 'amazon-session'
 const SESSION_MAX_AGE = 6 * 3600 * 1000
 
 export class FetchError extends Error {
@@ -29,10 +28,12 @@ export function isBlocked(html) {
 }
 
 /** Konfigurierter Scraping-Dienst (per Umgebungsvariable), sonst null. */
+// Anfragen laufen über Privat-IPs im Land des Marktplatzes (amazon.de → de, amazon.com → us)
 export function proxyProvider(env = process.env) {
-  if (env.SCRAPERAPI_KEY) return { name: 'ScraperAPI', url: (u) => `https://api.scraperapi.com/?api_key=${enc(env.SCRAPERAPI_KEY)}&country_code=de&url=${enc(u)}` }
-  if (env.SCRAPINGBEE_KEY) return { name: 'ScrapingBee', url: (u) => `https://app.scrapingbee.com/api/v1/?api_key=${enc(env.SCRAPINGBEE_KEY)}&premium_proxy=true&country_code=de&render_js=false&url=${enc(u)}` }
-  if (env.SCRAPEDO_TOKEN) return { name: 'Scrape.do', url: (u) => `https://api.scrape.do/?token=${enc(env.SCRAPEDO_TOKEN)}&geoCode=de&url=${enc(u)}` }
+  const cc = (u) => marketplaceForUrl(u).country
+  if (env.SCRAPERAPI_KEY) return { name: 'ScraperAPI', url: (u) => `https://api.scraperapi.com/?api_key=${enc(env.SCRAPERAPI_KEY)}&country_code=${cc(u)}&url=${enc(u)}` }
+  if (env.SCRAPINGBEE_KEY) return { name: 'ScrapingBee', url: (u) => `https://app.scrapingbee.com/api/v1/?api_key=${enc(env.SCRAPINGBEE_KEY)}&premium_proxy=true&country_code=${cc(u)}&render_js=false&url=${enc(u)}` }
+  if (env.SCRAPEDO_TOKEN) return { name: 'Scrape.do', url: (u) => `https://api.scrape.do/?token=${enc(env.SCRAPEDO_TOKEN)}&geoCode=${cc(u)}&url=${enc(u)}` }
   if (env.SCRAPER_URL_TEMPLATE) return { name: 'Proxy', url: (u) => env.SCRAPER_URL_TEMPLATE.replace('{url}', enc(u)) }
   return null
 }
@@ -45,11 +46,11 @@ export function fetchMode(env = process.env) {
   return ['direct', 'fallback', 'proxy'].includes(mode) ? mode : 'proxy'
 }
 
-function browserHeaders(browser, { cookies, referer } = {}) {
+function browserHeaders(browser, { cookies, referer, acceptLanguage = 'de-DE,de;q=0.9,en-US;q=0.8,en;q=0.7' } = {}) {
   const h = {
     'User-Agent': browser.ua,
     Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
-    'Accept-Language': 'de-DE,de;q=0.9,en-US;q=0.8,en;q=0.7',
+    'Accept-Language': acceptLanguage,
     'Accept-Encoding': 'gzip, deflate, br',
     'Cache-Control': 'max-age=0',
     'Upgrade-Insecure-Requests': '1',
@@ -141,39 +142,42 @@ async function timedFetch(url, headers, deadline, log, label, kind = 'direct') {
 }
 
 /** Holt (oder erneuert) eine Cookie-Sitzung über die Startseite – Amazon lehnt cookielose Erstaufrufe häufiger ab. */
-async function getSession({ fresh = false, deadline, log }) {
-  let session = fresh ? null : await getJSON(SESSION_KEY, null).catch(() => null)
+async function getSession(mp, { fresh = false, deadline, log }) {
+  const home = `https://${mp.host}/`
+  let session = fresh ? null : await getJSON(mp.sessionKey, null).catch(() => null)
   if (session && Date.now() - session.created < SESSION_MAX_AGE && session.cookies?.['session-id']) return session
   const browser = BROWSERS[Math.floor(Math.random() * BROWSERS.length)]
   session = { browser, cookies: {}, created: Date.now() }
   try {
-    const { res } = await timedFetch(HOME, browserHeaders(browser), Math.min(deadline, Date.now() + 5000), log, 'Startseite (Cookies)')
+    const { res } = await timedFetch(home, browserHeaders(browser, { acceptLanguage: mp.acceptLanguage }), Math.min(deadline, Date.now() + 5000), log, 'Startseite (Cookies)')
     mergeCookies(session.cookies, res)
   } catch { /* ohne Cookies weitermachen */ }
   return session
 }
 
 async function fetchDirect(target, { deadline, log }) {
+  const mp = marketplaceForUrl(target)
+  const home = `https://${mp.host}/`
   let lastStatus = null
   for (let attempt = 0; attempt < 2; attempt++) {
     if (attempt > 0) {
       if (remaining(deadline) < 4000) break
       await sleep(1500 + Math.random() * 1500)
     }
-    const session = await getSession({ fresh: attempt > 0, deadline, log })
+    const session = await getSession(mp, { fresh: attempt > 0, deadline, log })
     const { res, html } = await timedFetch(
       target,
-      browserHeaders(session.browser, { cookies: session.cookies, referer: Object.keys(session.cookies).length ? HOME : undefined }),
+      browserHeaders(session.browser, { cookies: session.cookies, referer: Object.keys(session.cookies).length ? home : undefined, acceptLanguage: mp.acceptLanguage }),
       deadline, log, attempt ? 'Amazon direkt (2. Versuch)' : 'Amazon direkt',
     )
     mergeCookies(session.cookies, res)
     lastStatus = res.status
     if (res.status === 404) throw new FetchError('Produkt nicht gefunden (404) – ASIN prüfen', { status: 404, method: 'direkt' })
     if (res.ok && !isBlocked(html)) {
-      await setJSON(SESSION_KEY, session).catch(() => {})
+      await setJSON(mp.sessionKey, session).catch(() => {})
       return html
     }
-    await setJSON(SESSION_KEY, null).catch(() => {}) // verbrannte Sitzung verwerfen
+    await setJSON(mp.sessionKey, null).catch(() => {}) // verbrannte Sitzung verwerfen
   }
   throw new FetchError(
     `Amazon-Bot-Schutz (HTTP ${lastStatus ?? '–'}): Netlify-Server werden von Amazon oft abgewiesen. Abhilfe: Scraping-Dienst in Netlify hinterlegen (siehe README).`,

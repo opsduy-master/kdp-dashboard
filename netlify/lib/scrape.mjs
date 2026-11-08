@@ -1,23 +1,32 @@
 import * as cheerio from 'cheerio'
 
 import { fetchProductHtml, isBlocked } from './fetch-amazon.mjs'
+import { marketplace } from './marketplaces.mjs'
 
 export { isBlocked }
 
-export const productUrl = (asin) => `https://www.amazon.de/dp/${asin}`
+export const productUrl = (asin, mp) => `https://${marketplace(mp).host}/dp/${asin}`
 
-/** "12,99 €" -> 12.99, "1.234" -> 1234 (deutsche Schreibweise) */
-export function parseNumber(text) {
+/**
+ * "12,99 €" -> 12.99, "1.234" -> 1234 (deutsche Schreibweise, Standard).
+ * Mit locale 'en' (amazon.com): "$11.99" -> 11.99, "#1,234" -> 1234.
+ */
+export function parseNumber(text, locale = 'de') {
   if (text == null) return null
   const cleaned = String(text).replace(/[^\d.,]/g, '')
   if (!cleaned) return null
   let normalized
-  if (cleaned.includes(',')) normalized = cleaned.replace(/\./g, '').replace(',', '.')
+  if (locale === 'en') normalized = cleaned.replace(/,/g, '')
+  else if (cleaned.includes(',')) normalized = cleaned.replace(/\./g, '').replace(',', '.')
   else if (/^\d{1,3}(\.\d{3})+$/.test(cleaned)) normalized = cleaned.replace(/\./g, '')
   else normalized = cleaned
   const n = Number(normalized)
   return Number.isFinite(n) ? n : null
 }
+
+// Zahlenformat der gerade geparsten Seite (parseProduct ist synchron, daher genügt eine Modulvariable)
+let LOCALE = 'de'
+const num = (t) => parseNumber(t, LOCALE)
 
 function firstText($, selectors) {
   for (const sel of selectors) {
@@ -40,7 +49,7 @@ function parsePrice($) {
     '#price',
     '#buybox .a-price:not(.a-text-price) .a-offscreen',
   ])
-  return parseNumber(raw)
+  return num(raw)
 }
 
 /** Normiert Formatnamen der Ausgaben-Kacheln: Kindle/eBook, Taschenbuch, gebundene Ausgabe, Hörbuch. */
@@ -65,7 +74,7 @@ export function parseFormats($) {
     const key = formatKey(name)
     if (!key || out.some((f) => f.key === key)) return
     const asin = String(href || '').match(/\/dp\/([A-Z0-9]{10})/)?.[1] || null
-    out.push({ key, name: name.replace(/\s+/g, ' ').trim(), price: parseNumber(priceText), asin, selected })
+    out.push({ key, name: name.replace(/\s+/g, ' ').trim(), price: num(priceText), asin, selected })
   }
   $('[id^="tmm-grid-swatch-"]').each((_, el) => {
     const e = $(el)
@@ -91,7 +100,7 @@ function parseRating($) {
   ]
   for (const c of candidates) {
     const m = c && c.match(/([\d]+[,.]?\d*)\s*(von|out of)\s*5/i)
-    if (m) return parseNumber(m[1])
+    if (m) return num(m[1])
   }
   return null
 }
@@ -100,7 +109,7 @@ function parseReviewCount($) {
   const raw = firstText($, ['#acrCustomerReviewText', '[data-hook="total-review-count"]'])
   if (!raw) return null
   const m = raw.match(/[\d.,]+/)
-  return m ? parseNumber(m[0]) : null
+  return m ? num(m[0]) : null
 }
 
 function parseBsr($) {
@@ -122,7 +131,7 @@ function parseBsr($) {
   const re = /(?:Nr\.|#)\s*([\d.,]+)\s+in\s+(.+?)(?=\s*\(|\s*(?:Nr\.|#)\s*\d|\s*Kundenrezensionen|\s*Customer Reviews|$)/gi
   let m
   while ((m = re.exec(section)) && ranks.length < 6) {
-    const rank = parseNumber(m[1])
+    const rank = num(m[1])
     const category = m[2].trim().replace(/[\s:.]+$/, '')
     if (rank != null && category) ranks.push({ rank, category })
   }
@@ -138,7 +147,9 @@ function parseFormat($) {
   return sel || null
 }
 
-export function parseProduct(html) {
+export function parseProduct(html, { marketplace: mpKey } = {}) {
+  const mp = marketplace(mpKey)
+  LOCALE = mp.locale
   const $ = cheerio.load(html)
   const title = $('#productTitle').text().trim() || $('#ebooksProductTitle').text().trim() || null
   const image =
@@ -154,7 +165,7 @@ export function parseProduct(html) {
     format: parseFormat($),
     price: parsePrice($),
     formats: parseFormats($),
-    currency: 'EUR',
+    currency: mp.currency,
     rating: parseRating($),
     reviews: parseReviewCount($),
     ...parseBsr($),
@@ -162,9 +173,9 @@ export function parseProduct(html) {
 }
 
 /** Lädt die Produktseite und parst sie. `deadline` begrenzt die Gesamtdauer inkl. Wiederholungen. */
-export async function scrapeProduct(asin, { deadline, log } = {}) {
-  const { html, method } = await fetchProductHtml(productUrl(asin), { deadline, log })
-  const data = parseProduct(html)
+export async function scrapeProduct(asin, { marketplace: mpKey, deadline, log } = {}) {
+  const { html, method } = await fetchProductHtml(productUrl(asin, mpKey), { deadline, log })
+  const data = parseProduct(html, { marketplace: mpKey })
   if (!data.title && data.price == null && data.bsr == null) {
     throw new Error('Seite enthielt keine Produktdaten (evtl. Layout geändert oder blockiert)')
   }

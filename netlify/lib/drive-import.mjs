@@ -7,6 +7,9 @@ import { getAds, getJSON, getSales, saveAds, saveSales, setJSON } from './store.
 const KINDS = {
   sales: { prefix: 'KDP_Dashboard', stateKey: 'drive-import', label: 'KDP-Bericht', parse: parseKdpWorkbook, get: getSales, save: saveSales, merge: mergeSales },
   ads: { prefix: 'Sponsored_Products', stateKey: 'drive-import-ads', label: 'Werbebericht', parse: parseAdsWorkbook, get: getAds, save: saveAds, merge: mergeAds },
+  // Werbebericht aus der US-Werbekonsole (amazon.com): Datei in Drive mit „US_“ vor dem Namen ablegen.
+  // optional: fehlt die Datei oder ist das Apps Script älter als Version 4, gilt das nicht als Fehler.
+  adsUs: { prefix: 'US_Sponsored_Products', stateKey: 'drive-import-ads-us', label: 'Werbebericht USA', parse: parseAdsWorkbook, get: getAds, save: saveAds, merge: mergeAds, optional: true, minScript: 4 },
 }
 
 /** Kurzform der Bereitstellungs-ID aus der Web-App-URL, z. B. „AKfycb…X4PoA“ – zum Abgleich mit „Bereitstellungen verwalten“. */
@@ -18,8 +21,8 @@ export function deploymentLabel(url) {
 export const driveConfigured = () => Boolean(process.env.DRIVE_SCRIPT_URL)
 
 export async function getDriveState() {
-  const [sales, ads] = await Promise.all([getJSON(KINDS.sales.stateKey, {}), getJSON(KINDS.ads.stateKey, {})])
-  return { sales, ads }
+  const [sales, ads, adsUs] = await Promise.all(Object.values(KINDS).map((k) => getJSON(k.stateKey, {})))
+  return { sales, ads, adsUs }
 }
 
 export function readSheets(buf) {
@@ -56,8 +59,14 @@ export async function importFromDrive({ kind = 'sales', force = false, timeoutMs
     try { body = JSON.parse(text) } catch {
       throw new Error(`Apps Script antwortet nicht mit JSON (HTTP ${res.status}) – ist die Web-App mit Zugriff „Jeder“ bereitgestellt?`)
     }
+    // Scripts vor Version 3 kennen „prefix“ nicht, vor Version 4 kennen sie den US-Werbebericht nicht
+    if ((body.prefix || 'KDP_Dashboard') !== k.prefix && k.optional) {
+      const next = { ...state, checkedAt, error: null, notFound: true, needsScript: k.minScript }
+      await setJSON(k.stateKey, next)
+      return { configured: true, kind, notFound: true, ...next }
+    }
     if (body.notFound) {
-      const next = { ...state, checkedAt, error: null, notFound: true }
+      const next = { ...state, checkedAt, error: null, notFound: true, needsScript: null }
       await setJSON(k.stateKey, next)
       return { configured: true, kind, notFound: true, ...next }
     }
@@ -85,7 +94,7 @@ export async function importFromDrive({ kind = 'sales', force = false, timeoutMs
     await k.save(merged)
     const next = {
       fileId: body.id, name: body.name, modifiedTime: body.modifiedTime,
-      importedAt: checkedAt, checkedAt, rows: rows.length, added, replaced, sheetsUsed, error: null, notFound: false,
+      importedAt: checkedAt, checkedAt, rows: rows.length, added, replaced, sheetsUsed, error: null, notFound: false, needsScript: null,
     }
     await setJSON(k.stateKey, next)
     return { configured: true, kind, imported: true, ...next }
@@ -96,9 +105,13 @@ export async function importFromDrive({ kind = 'sales', force = false, timeoutMs
   }
 }
 
-/** KDP-Bericht und Werbebericht parallel abholen. */
+/** KDP-Bericht und Werbeberichte (DE und USA) parallel abholen. */
 export async function importAllFromDrive(opts = {}) {
   if (!driveConfigured()) return { configured: false }
-  const [sales, ads] = await Promise.all([importFromDrive({ ...opts, kind: 'sales' }), importFromDrive({ ...opts, kind: 'ads' })])
-  return { configured: true, sales, ads }
+  // Werbeberichte nacheinander, weil beide in dieselbe Liste „ads“ schreiben
+  const [sales, ads] = await Promise.all([
+    importFromDrive({ ...opts, kind: 'sales' }),
+    importFromDrive({ ...opts, kind: 'ads' }).then(async (ads) => [ads, await importFromDrive({ ...opts, kind: 'adsUs' })]),
+  ])
+  return { configured: true, sales, ads: ads[0], adsUs: ads[1] }
 }

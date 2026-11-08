@@ -22,7 +22,8 @@ export async function refreshBook(asin, { deadline, queueOnFailure = false } = {
   const status = await getStatus()
   const entry = { ...(status[asin] || {}), lastAttempt: new Date().toISOString() }
   try {
-    const { method, ...data } = await scrapeProduct(asin, { deadline })
+    const mp = (await getBooks()).find((b) => b.asin === asin)?.marketplace
+    const { method, ...data } = await scrapeProduct(asin, { marketplace: mp, deadline })
     const snapshot = { t: entry.lastAttempt, ...data }
     await appendHistory(asin, snapshot)
     Object.assign(entry, { lastSuccess: entry.lastAttempt, lastError: null, failCount: 0, queued: false, method, latest: snapshot })

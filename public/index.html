@@ -56,7 +56,7 @@
     <section class="card">
       <div class="card-head">
         <h2>Meine Bücher</h2>
-        <span class="muted small">BSR &amp; Bewertungen von amazon.de · Verkäufe aus KDP-Report</span>
+        <span class="muted small">BSR &amp; Bewertungen vom jeweiligen Marktplatz (amazon.de / amazon.com) · Verkäufe aus KDP-Report · Tantiemen in EUR</span>
       </div>
       <div class="table-wrap">
         <table class="books" id="books-table">
@@ -169,7 +169,14 @@
   <dialog id="dlg-add">
     <form method="dialog" id="form-add" class="dlg">
       <h2 id="add-title">Buch hinzufügen</h2>
-      <label>ASIN der Produktseite auf amazon.de
+      <label>Marktplatz
+        <select name="marketplace">
+          <option value="de">amazon.de (EUR)</option>
+          <option value="com">amazon.com (USD)</option>
+        </select>
+        <span class="muted small">Von hier werden Preis, Bewertungen und BSR gelesen. Verkäufe aus dem KDP-Report werden über die ASIN zugeordnet.</span>
+      </label>
+      <label>ASIN der Produktseite
         <input name="asin" required pattern="[A-Za-z0-9]{10}" placeholder="z. B. B0ABC12345" autocomplete="off">
       </label>
       <label>Anzeigename (optional)
@@ -203,7 +210,7 @@
         <li>In KDP: <strong>Berichte → Tantiemen</strong> (oder „Bestellungen“) öffnen.</li>
         <li>Zeitraum wählen und <strong>„Bericht herunterladen“</strong> (XLSX).</li>
         <li>Datei hier auswählen. Bereits importierte Tage werden überschrieben, also nicht doppelt gezählt.</li>
-        <li>Auch Amazon-Ads-Berichte (<strong>Sponsored Products</strong>, z. B. Targeting- oder Keyword-Bericht als XLSX) werden erkannt.</li>
+        <li>Auch Amazon-Ads-Berichte (<strong>Sponsored Products</strong>, z. B. Targeting- oder Keyword-Bericht als XLSX) werden erkannt, auch aus der US-Konsole (USD).</li>
       </ol>
       <label class="drop" id="drop">
         <input type="file" id="file" accept=".xlsx,.xls,.csv">
@@ -227,6 +234,10 @@
         <strong>Berichte aus Google Drive</strong>
         <span class="muted" id="drive-info"></span>
         <div><button class="btn" type="button" id="btn-drive">Neueste Datei jetzt importieren</button></div>
+      </div>
+      <div class="stack small">
+        <strong>Wechselkurs</strong>
+        <span class="muted" id="fx-info"></span>
       </div>
       <div class="stack small">
         <strong>Amazon-Abruf</strong>

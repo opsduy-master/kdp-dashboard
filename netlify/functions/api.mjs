@@ -2,6 +2,8 @@ import { timingSafeEqual, createHash } from 'node:crypto'
 import { fetchMode, fetchProductHtml, proxyProvider } from '../lib/fetch-amazon.mjs'
 import { refreshBook, refreshIntervalMs } from '../lib/refresh.mjs'
 import { parseProduct, productUrl } from '../lib/scrape.mjs'
+import { getRates } from '../lib/fx.mjs'
+import { MARKETPLACES } from '../lib/marketplaces.mjs'
 import { driveConfigured, getDriveState, importAllFromDrive } from '../lib/drive-import.mjs'
 import { mergeAds, mergeSales } from '../lib/sales.mjs'
 import { getAds, getAdsMap, getBooks, getHistory, getSales, getStatus, saveAds, saveAdsMap, saveBooks, saveSales, saveStatus, store } from '../lib/store.mjs'
@@ -23,6 +25,7 @@ function authorized(req) {
 
 const ASIN_RE = /^[A-Z0-9]{10}$/
 const PRICE_FORMATS = ['auto', 'paperback', 'ebook', 'hardcover']
+const marketplaceKey = (v) => (MARKETPLACES[v] ? v : 'de')
 const normalizeIds = (ids) =>
   [...new Set((Array.isArray(ids) ? ids : String(ids || '').split(/[\s,;]+/))
     .map((s) => String(s).trim().toUpperCase().replace(/-/g, ''))
@@ -39,12 +42,12 @@ export default async (req) => {
 
   try {
     if (route === 'data' && method === 'GET') {
-      const [books, status, sales, drive, ads, adsMap] = await Promise.all([getBooks(), getStatus(), getSales(), getDriveState(), getAds(), getAdsMap()])
+      const [books, status, sales, drive, ads, adsMap, fx] = await Promise.all([getBooks(), getStatus(), getSales(), getDriveState(), getAds(), getAdsMap(), getRates()])
       const histories = Object.fromEntries(
         await Promise.all(books.map(async (b) => [b.asin, await getHistory(b.asin)])),
       )
       const fetching = { mode: fetchMode(), provider: proxyProvider()?.name || null, intervalHours: refreshIntervalMs() / 3600000 }
-      return json({ books, status, histories, sales, ads, adsMap, fetching, drive: { configured: driveConfigured(), ...drive }, now: new Date().toISOString() })
+      return json({ books, status, histories, sales, ads, adsMap, fx, fetching, drive: { configured: driveConfigured(), ...drive }, now: new Date().toISOString() })
     }
 
     if (route === 'books' && method === 'POST') {
@@ -58,10 +61,12 @@ export default async (req) => {
         existing.ids = ids
         if (body.label !== undefined) existing.label = String(body.label).slice(0, 120)
         if (body.priceFormat !== undefined) existing.priceFormat = PRICE_FORMATS.includes(body.priceFormat) ? body.priceFormat : 'auto'
+        if (body.marketplace !== undefined) existing.marketplace = marketplaceKey(body.marketplace)
       } else {
         books.push({
           asin, ids, label: String(body.label || '').slice(0, 120), added: new Date().toISOString(),
           priceFormat: PRICE_FORMATS.includes(body.priceFormat) ? body.priceFormat : 'auto',
+          marketplace: marketplaceKey(body.marketplace),
         })
       }
       await saveBooks(books)
@@ -89,12 +94,14 @@ export default async (req) => {
     const diag = route.match(/^diagnose\/([A-Z0-9]{10})$/i)
     if (diag && method === 'GET') {
       const log = []
-      const result = { mode: fetchMode(), provider: proxyProvider()?.name || null, log }
+      const asin = diag[1].toUpperCase()
+      const mp = (await getBooks()).find((b) => b.asin === asin)?.marketplace
+      const result = { mode: fetchMode(), provider: proxyProvider()?.name || null, log, url: productUrl(asin, mp) }
       try {
-        const { html, method: via } = await fetchProductHtml(productUrl(diag[1].toUpperCase()), { deadline: Date.now() + 8500, log })
+        const { html, method: via } = await fetchProductHtml(result.url, { deadline: Date.now() + 8500, log })
         result.ok = true
         result.via = via
-        result.parsed = parseProduct(html)
+        result.parsed = parseProduct(html, { marketplace: mp })
       } catch (err) {
         result.ok = false
         result.error = String(err?.message || err)
