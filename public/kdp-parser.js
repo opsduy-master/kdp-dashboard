@@ -162,7 +162,8 @@ export function parseKdpWorkbook(sheets) {
 const AD_COLUMNS = {
   date: { match: [/^datum$/, /^date$/, /^tag$/, /^day$/, 'datum', /\bdate\b/] },
   campaign: { match: ['kampagnen-name', 'kampagnenname', 'campaign name', 'kampagne', 'campaign'] },
-  portfolio: { match: ['portfolio'] },
+  portfolio: { match: ['portfolioname', 'portfolio name', 'portfolio'], exclude: ['-id', ' id'] },
+  country: { match: ['land der kampagne', 'campaign country', 'country', /^land$/] },
   targeting: { match: ['ausrichtung', 'targeting', 'keyword', 'suchbegriff', 'search term'] },
   matchType: { match: ['übereinstimmungstyp', 'match type'] },
   impressions: { match: [/^impressionen$/, /^impressions$/, 'impressionen', 'impressions'], exclude: ['share', 'anteil'] },
@@ -208,8 +209,11 @@ export function parseAdsWorkbook(sheets) {
     for (const r of sheet.rows.slice(headerIdx + 1)) {
       if (!r) continue
       const date = toISODate(get(r, 'date'))
-      const campaign = String(get(r, 'campaign') ?? '').trim()
+      let campaign = String(get(r, 'campaign') ?? '').trim()
       if (!date || !campaign) continue
+      // Kampagnen aus anderen Ländern (z. B. US-Konsole) kennzeichnen, damit sie sich nie mit gleichnamigen DE-Kampagnen mischen
+      const country = String(get(r, 'country') ?? '').trim().toUpperCase()
+      if (/^[A-Z]{2}$/.test(country) && country !== 'DE') campaign = `${campaign} [${country}]`
       const row = {
         date,
         campaign,
