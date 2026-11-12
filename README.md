@@ -75,9 +75,10 @@ neueste `Sponsored_Products*.xlsx` aus dem Google-Drive-Ordner (dafür Apps Scri
 - **Umrechnung in EUR:** Tantiemen, Werbekosten und „Ergebnis nach Werbung“ werden zum aktuellen **EZB-Referenzkurs** in EUR summiert
   (abgerufen höchstens alle 12 Stunden, angezeigt unter **⚙ → Wechselkurs**). Der Originalbetrag in USD steht jeweils darunter.
   Einen festen Kurs kannst du per Umgebungsvariable setzen, z. B. `FX_USD=1.08` (USD pro 1 EUR).
-- **US-Werbebericht aus Google Drive:** Den Sponsored-Products-Bericht der US-Konsole mit `US_` vor dem Namen ablegen
-  (z. B. `US_Sponsored_Products_Targeting.xlsx`) und das Apps Script in **Version 4** bereitstellen. Hochladen über **⇪ KDP-Report** geht auch ohne.
-  Kampagnen danach wie gewohnt dem US-Buch zuordnen.
+- **US-Werbebericht aus Google Drive:** Den Sponsored-Products-Bericht der US-Konsole mit `_US` am Ende oder `US_` am Anfang
+  des Namens ablegen, als XLSX oder CSV (z. B. `Sponsored_Products_Targeting_Bericht_US.csv`), und das Apps Script in **Version 5**
+  bereitstellen. Hochladen über **⇪ KDP-Report** geht auch ohne.
+  US-Kampagnen erscheinen als „… [US]“ (aus der Spalte „Land der Kampagne“) und werden nur US-Büchern vorgeschlagen.
 - Mit einem Scraping-Dienst laufen amazon.com-Abrufe automatisch über US-IPs.
 
 ## Wenn Amazon blockiert (HTTP 503 / Captcha)

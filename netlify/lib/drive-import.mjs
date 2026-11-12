@@ -9,7 +9,8 @@ const KINDS = {
   ads: { prefix: 'Sponsored_Products', stateKey: 'drive-import-ads', label: 'Werbebericht', parse: parseAdsWorkbook, get: getAds, save: saveAds, merge: mergeAds },
   // Werbebericht aus der US-Werbekonsole (amazon.com): Datei in Drive mit „US_“ vor dem Namen ablegen.
   // optional: fehlt die Datei oder ist das Apps Script älter als Version 4, gilt das nicht als Fehler.
-  adsUs: { prefix: 'US_Sponsored_Products', stateKey: 'drive-import-ads-us', label: 'Werbebericht USA', parse: parseAdsWorkbook, get: getAds, save: saveAds, merge: mergeAds, optional: true, minScript: 4 },
+  // Erkannt werden „US_Sponsored_Products…“ und „Sponsored_Products…_US.csv/.xlsx“ (ab Apps Script Version 5).
+  adsUs: { prefix: 'US_Sponsored_Products', stateKey: 'drive-import-ads-us', label: 'Werbebericht USA', parse: parseAdsWorkbook, get: getAds, save: saveAds, merge: mergeAds, optional: true, minScript: 5 },
 }
 
 /** Kurzform der Bereitstellungs-ID aus der Web-App-URL, z. B. „AKfycb…X4PoA“ – zum Abgleich mit „Bereitstellungen verwalten“. */
@@ -25,8 +26,14 @@ export async function getDriveState() {
   return { sales, ads, adsUs }
 }
 
-export function readSheets(buf) {
-  const wb = XLSX.read(buf, { type: 'buffer', cellDates: true })
+/**
+ * Liest XLSX oder CSV. CSV wird ohne automatische Typerkennung gelesen, weil SheetJS sonst
+ * deutsche Datumsangaben wie „10.11.2026“ amerikanisch (als 11. Oktober) deutet.
+ */
+export function readSheets(buf, name = '') {
+  const wb = /\.csv$/i.test(name)
+    ? XLSX.read(Buffer.from(buf).toString('utf8').replace(/^\uFEFF/, ''), { type: 'string', raw: true })
+    : XLSX.read(buf, { type: 'buffer', cellDates: true })
   return wb.SheetNames.map((name) => ({
     name,
     rows: XLSX.utils.sheet_to_json(wb.Sheets[name], { header: 1, raw: true, defval: '' }),
@@ -60,7 +67,7 @@ export async function importFromDrive({ kind = 'sales', force = false, timeoutMs
       throw new Error(`Apps Script antwortet nicht mit JSON (HTTP ${res.status}) – ist die Web-App mit Zugriff „Jeder“ bereitgestellt?`)
     }
     // Scripts vor Version 3 kennen „prefix“ nicht, vor Version 4 kennen sie den US-Werbebericht nicht
-    if ((body.prefix || 'KDP_Dashboard') !== k.prefix && k.optional) {
+    if (k.optional && ((body.prefix || 'KDP_Dashboard') !== k.prefix || (body.scriptVersion || 0) < k.minScript)) {
       const next = { ...state, checkedAt, error: null, notFound: true, needsScript: k.minScript }
       await setJSON(k.stateKey, next)
       return { configured: true, kind, notFound: true, ...next }
@@ -85,7 +92,7 @@ export async function importFromDrive({ kind = 'sales', force = false, timeoutMs
       await setJSON(k.stateKey, next)
       return { configured: true, kind, unchanged: true, ...next }
     }
-    const { rows, sheetsUsed, headers } = k.parse(readSheets(Buffer.from(body.data, 'base64')))
+    const { rows, sheetsUsed, headers } = k.parse(readSheets(Buffer.from(body.data, 'base64'), body.name))
     if (!rows.length) {
       const cols = (headers?.[0] || []).slice(0, 14).join(', ')
       throw new Error(`${body.name}: keine Daten erkannt${cols ? ` – unbekanntes Spaltenformat (${cols} …)` : ''}`)

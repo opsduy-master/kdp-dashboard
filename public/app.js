@@ -163,8 +163,11 @@ const ctr = (a) => (a.impressions > 0 ? a.clicks / a.impressions : null)
 const cpc = (a) => (a.clicks > 0 ? a.spend / a.clicks : null)
 
 const bookName = (b) => b.label || latestOf(b.asin)?.title || b.asin
+/** Vorschlag nur aus Büchern des passenden Marktplatzes: „… [US]“ → amazon.com, sonst amazon.de. */
 function campaignGuess(campaign) {
-  return guessBookForCampaign(campaign, state.data.books.map((b) => ({ asin: b.asin, name: `${b.label || ''} ${latestOf(b.asin)?.title || ''}` })))
+  const mp = /\[US\]$/.test(campaign) ? 'com' : 'de'
+  const books = state.data.books.filter((b) => (b.marketplace || 'de') === mp)
+  return guessBookForCampaign(campaign.replace(/\s*\[[A-Z]{2}\]$/, ''), books.map((b) => ({ asin: b.asin, name: `${b.label || ''} ${latestOf(b.asin)?.title || ''}` })))
 }
 
 /** Werbedaten je Buch – nur bestätigte Kampagnen-Zuordnungen zählen. */
@@ -783,7 +786,10 @@ async function handleFile(file) {
   $('#upload-error').textContent = ''
   $('#upload-preview').textContent = 'Lese Datei …'
   try {
-    const wb = XLSX.read(await file.arrayBuffer(), { cellDates: true })
+    // CSV ohne Typerkennung lesen, sonst wird „10.11.2026“ zum 11. Oktober
+    const wb = /\.csv$/i.test(file.name)
+      ? XLSX.read((await file.text()).replace(/^\uFEFF/, ''), { type: 'string', raw: true })
+      : XLSX.read(await file.arrayBuffer(), { cellDates: true })
     const sheets = wb.SheetNames.map((name) => ({
       name, rows: XLSX.utils.sheet_to_json(wb.Sheets[name], { header: 1, raw: true, defval: '' }),
     }))
@@ -872,15 +878,15 @@ function renderDriveInfo() {
   const line = (x = {}, label, prefix) => [
     `<strong>${label}:</strong> ` + (x.name
       ? `${esc(x.name)} (Datei vom ${new Date(x.modifiedTime).toLocaleString('de-DE')}, importiert ${rel(x.importedAt)})`
-      : x.notFound ? `keine <code>${prefix}*.xlsx</code> im Ordner` : 'noch nichts importiert'),
+      : x.notFound ? `keine <code>${prefix}</code> im Ordner` : 'noch nichts importiert'),
     x.error ? `<span class="error">⚠ ${esc(x.error)}</span>` : '',
   ].filter(Boolean).join('<br>')
   $('#drive-info').innerHTML = [
-    line(d.sales, 'KDP-Bericht', 'KDP_Dashboard'),
-    line(d.ads, 'Werbebericht', 'Sponsored_Products'),
+    line(d.sales, 'KDP-Bericht', 'KDP_Dashboard*.xlsx'),
+    line(d.ads, 'Werbebericht', 'Sponsored_Products*.xlsx'),
     d.adsUs?.needsScript
       ? `<strong>Werbebericht USA:</strong> <span class="muted">Apps Script Version ${d.adsUs.needsScript} nötig (Code aus dem Repo einfügen, neue Version bereitstellen).</span>`
-      : line(d.adsUs, 'Werbebericht USA', 'US_Sponsored_Products'),
+      : line(d.adsUs, 'Werbebericht USA', 'Sponsored_Products*_US.csv'),
     d.sales?.checkedAt ? `<span class="muted">Zuletzt geprüft ${rel(d.sales.checkedAt)}. Wird stündlich und bei „Jetzt aktualisieren“ geprüft.</span>` : '',
   ].filter(Boolean).join('<br>')
 }
