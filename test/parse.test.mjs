@@ -94,6 +94,21 @@ test('Deutscher KDP-Dashboard-Export (Struktur wie KDP_Dashboard-*.xlsx)', () =>
   assert.ok(rows.some((r) => r.format === 'paperback' && r.id === 'B0HM7F67KW'))
 })
 
+test('Umsatz (Basis für TACoS) = Einheiten × Ø Angebotspreis ohne Steuer', () => {
+  const { rows } = parseKdpWorkbook(kdpDashboardDe)
+  const rev = (fmt) => Math.round(rows.filter((r) => r.format === fmt).reduce((s, r) => s + (r.revenue || 0), 0) * 100) / 100
+  assert.equal(rev('paperback'), 58.4) // 5 × 11,68 €
+  assert.equal(rev('ebook'), 6.51) // 7 × 0,93 €
+  // KENP-Blatt hat keine Preisspalte → kein Umsatzfeld
+  assert.ok(rows.filter((r) => r.format === 'kenp').every((r) => r.revenue === undefined))
+})
+
+test('Umsatz bleibt beim Speichern erhalten, ältere Zeilen ohne Umsatz bleiben ohne Feld', async () => {
+  const { sanitizeRow } = await import('../netlify/lib/sales.mjs')
+  assert.equal(sanitizeRow({ date: '2026-11-01', id: 'X', units: 2, revenue: 23.36 }).revenue, 23.36)
+  assert.equal('revenue' in sanitizeRow({ date: '2026-11-01', id: 'X', units: 2 }), false)
+})
+
 test('Server-Import: echte XLSX-Datei (Buffer) ergibt dieselben Summen', async () => {
   const XLSX = await import('xlsx')
   const { parseWorkbookBuffer } = await import('../netlify/lib/drive-import.mjs')
