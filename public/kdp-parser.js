@@ -17,6 +17,9 @@ const COLUMNS = {
   kenp: { match: ['kenp'] },
   royalty: { match: ['royalty', 'tantiemen', 'tantieme'], exclude: ['date', 'datum', 'type', 'typ', 'rate', 'satz'] },
   currency: { match: ['currency', 'währung', 'waehrung'] },
+  // Ø Preise ohne Steuer (Tantiemen-Blätter) → Umsatz = Einheiten × Preis (Basis für TACoS)
+  offerPrice: { match: ['angebotspreis', 'offer price'] },
+  listPrice: { match: ['listenpreis', 'list price'] },
 }
 
 function findColumns(header, spec = COLUMNS) {
@@ -142,6 +145,10 @@ export function parseKdpWorkbook(sheets) {
         currency: cols.currency !== undefined ? String(r[cols.currency] ?? '').trim().toUpperCase() : '',
       }
       row.currency ||= currencyForMarketplace(row.marketplace)
+      // Umsatz ohne Steuer: Ø Angebotspreis (tatsächlich bezahlt), sonst Ø Listenpreis. Ohne Preisspalte kein Feld.
+      const priceCol = cols.offerPrice ?? cols.listPrice
+      const price = priceCol !== undefined ? toNumber(r[priceCol]) : 0
+      if (price > 0) row.revenue = row.units * price
       // Mehrere Zeilen pro Tag/Titel (z. B. 35 %/70 % Tantiemen) zusammenfassen
       const key = [row.date, row.id, row.marketplace, row.format].join('|')
       const prev = agg.get(key)
@@ -149,6 +156,7 @@ export function parseKdpWorkbook(sheets) {
         prev.units += row.units
         prev.kenp += row.kenp
         prev.royalty += row.royalty
+        if (row.revenue != null) prev.revenue = (prev.revenue || 0) + row.revenue
         prev.currency ||= row.currency
         prev.title ||= row.title
       } else agg.set(key, row)

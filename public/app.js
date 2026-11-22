@@ -1,4 +1,4 @@
-import { guessBookForCampaign, parseAdsWorkbook, parseKdpWorkbook } from './kdp-parser.js'
+import { currencyForMarketplace, guessBookForCampaign, parseAdsWorkbook, parseKdpWorkbook } from './kdp-parser.js'
 
 const $ = (sel) => document.querySelector(sel)
 const TOKEN_KEY = 'kdp-dashboard-token'
@@ -115,12 +115,50 @@ function idToBook() {
   return map
 }
 
+// Buchpreise auf amazon.de enthalten 7 % MwSt., auf amazon.com sind sie ohne Steuer angegeben
+const VAT_IN_PRICE = { de: 0.07, com: 0 }
+
+/** Aktueller Amazon-Preis (ohne Steuer, in EUR) der Ausgabe einer Verkaufszeile – nur als Schätzung für ältere Importe ohne Preisspalte. */
+function estimatedUnitPriceEur(row, owner) {
+  const asin = owner.get(row.id)
+  const book = asin && state.data.books.find((b) => b.asin === asin)
+  const l = book && latestOf(asin)
+  if (!l) return null
+  const f = (l.formats || []).find((x) => x.key === row.format && x.price != null)
+  const price = f ? f.price : displayPrice(book, l)?.price
+  if (price == null) return null
+  return toEur(price / (1 + (VAT_IN_PRICE[book.marketplace || 'de'] ?? 0)), l.currency || 'EUR')
+}
+
+/**
+ * Umsatz einer Verkaufszeile in EUR (ohne Steuer):
+ * Einheiten × Ø Angebotspreis laut KDP-Bericht; KENP zählt mit seinen Tantiemen (es gibt keinen Preis).
+ * Fehlt der Preis (Import vor Einführung der Spalte), wird mit dem aktuellen Amazon-Preis geschätzt.
+ */
+function rowRevenueEur(r, owner) {
+  const cur = r.currency || 'EUR'
+  if (r.revenue != null) return { eur: toEur(r.revenue, cur) ?? 0, estimated: false }
+  if (r.format === 'kenp' || !r.units) return { eur: r.format === 'kenp' ? toEur(r.royalty || 0, cur) ?? 0 : 0, estimated: false }
+  const p = estimatedUnitPriceEur(r, owner)
+  return { eur: p != null ? r.units * p : 0, estimated: true, missing: p == null }
+}
+
 function sumSales(rows) {
-  const out = { units: 0, kenp: 0, royalty: {}, eur: 0 }
+  const out = { units: 0, kenp: 0, royalty: {}, eur: 0, revenueEur: 0, estimatedEur: 0, missingPrice: 0, unitRoyaltyEur: 0, unitRevenueEur: 0 }
+  const owner = idToBook()
   for (const r of rows) {
     out.units += r.units
     out.kenp += r.kenp
     if (r.royalty) out.royalty[r.currency || 'EUR'] = (out.royalty[r.currency || 'EUR'] || 0) + r.royalty
+    const rev = rowRevenueEur(r, owner)
+    out.revenueEur += rev.eur
+    if (rev.estimated) out.estimatedEur += rev.eur
+    if (rev.missing) out.missingPrice += r.units
+    // Für den Break-even-ACOS nur verkaufte Exemplare (ohne KENP)
+    if (r.format !== 'kenp' && r.units > 0 && rev.eur > 0) {
+      out.unitRoyaltyEur += toEur(r.royalty || 0, r.currency || 'EUR') ?? 0
+      out.unitRevenueEur += rev.eur
+    }
   }
   // Summe in EUR (Fremdwährungen zum aktuellen EZB-Kurs); Währungen ohne Kurs bleiben außen vor
   for (const [cur, v] of Object.entries(out.royalty)) out.eur += toEur(v, cur) ?? 0
@@ -161,6 +199,23 @@ const acos = (a) => (a.sales > 0 ? a.spend / a.sales : null)
 const acosText = (a) => (a.sales > 0 ? pct(a.spend / a.sales) : a.spend > 0 ? '<span class="muted">kein Umsatz</span>' : '–')
 const ctr = (a) => (a.impressions > 0 ? a.clicks / a.impressions : null)
 const cpc = (a) => (a.clicks > 0 ? a.spend / a.clicks : null)
+/** TACoS = Werbekosten ÷ Gesamtumsatz (organisch + Werbung), beides in EUR ohne Steuer. */
+const tacos = (spendEur, revenueEur) => (revenueEur > 0 ? spendEur / revenueEur : null)
+const tacosText = (spendEur, revenueEur) =>
+  revenueEur > 0 ? pct(spendEur / revenueEur) : spendEur > 0 ? '<span class="muted">kein Umsatz</span>' : '–'
+/** Break-even-ACOS = Tantieme ÷ Umsatz je verkauftem Exemplar (= Marge in %). Darüber kostet jede Werbebestellung Geld. */
+const breakEven = (s) => (s.unitRevenueEur > 0 ? s.unitRoyaltyEur / s.unitRevenueEur : null)
+/** ACOS farbig: grün unter Break-even, rot darüber. */
+function acosVsBreakEven(a, be) {
+  const v = acos(a)
+  if (v == null || be == null) return acosText(a)
+  return `<span class="${v <= be ? 'good' : 'bad'}" title="${v <= be ? 'unter' : 'über'} Break-even (${pct(be)})">${pct(v)}</span>`
+}
+/** Werbezeilen eines Marktplatzes (über die Währung: EUR = amazon.de, USD = amazon.com). */
+const adsForCurrency = (rows, cur) => (cur ? rows.filter((r) => (r.currency || 'EUR') === cur) : rows)
+const selectedCurrency = () => (state.marketplace === 'all' ? null : currencyForMarketplace(state.marketplace) || null)
+/** Organisch = alle Einheiten laut KDP minus über Werbeklicks verkaufte Einheiten (14 Tage nach Klick, daher Näherung). */
+const organicUnits = (units, adUnits) => Math.max(0, units - adUnits)
 
 const bookName = (b) => b.label || latestOf(b.asin)?.title || b.asin
 /** Vorschlag nur aus Büchern des passenden Marktplatzes: „… [US]“ → amazon.com, sonst amazon.de. */
@@ -297,6 +352,36 @@ function renderKpis() {
   const hasAds = (state.data.ads || []).length > 0
   const ads = sumAds(filteredAds())
   const prevAds = prev ? sumAds(filteredAds({ from: isoDay(Date.now() - (2 * state.days - 1) * DAY), to: isoDay(Date.now() - state.days * DAY) })) : null
+
+  // TACoS: bei gewähltem Marktplatz nur dessen Werbung
+  const mpCur = selectedCurrency()
+  const tAds = mpCur ? sumAds(adsForCurrency(filteredAds(), mpCur)) : ads
+  const tPrevAds = prev ? (mpCur ? sumAds(adsForCurrency(filteredAds({ from: isoDay(Date.now() - (2 * state.days - 1) * DAY), to: isoDay(Date.now() - state.days * DAY) }), mpCur)) : prevAds) : null
+  const tNow = tacos(tAds.spendEur, cur.revenueEur)
+  const tPrev = prev && tPrevAds ? tacos(tPrevAds.spendEur, prev.revenueEur) : null
+  const perMarket = mpCur ? [] : [['EUR', '🇩🇪 DE'], ['USD', '🇺🇸 US']].map(([c, label]) => {
+    const s = sumSales(filteredSales().filter((r) => (r.currency || 'EUR') === c))
+    const a = sumAds(adsForCurrency(filteredAds(), c))
+    return s.revenueEur > 0 || a.spendEur > 0 ? `${label} ${tacosText(a.spendEur, s.revenueEur)}` : null
+  }).filter(Boolean)
+  const pp = (v) => `${nf1.format(v * 100)} Pp.`
+  const tacosTile = !hasAds ? [] : [{
+    label: `TACoS · ${periodLabel}`, value: tacosText(tAds.spendEur, cur.revenueEur),
+    sub: [
+      `Werbekosten ${money(tAds.spendEur)} ÷ Umsatz ${money(cur.revenueEur)}`,
+      perMarket.length > 1 ? perMarket.join(' · ') : '',
+      cur.estimatedEur > 0.5 ? `<span class="muted small" title="Für ältere Importe ohne Preisspalte mit dem aktuellen Amazon-Preis (ohne MwSt.) geschätzt">davon ${money(cur.estimatedEur)} Umsatz geschätzt</span>` : '',
+      tNow != null && tPrev != null ? deltaHtml(tNow - tPrev, { goodWhenNegative: true, fmt: pp }) + vsPrev : '',
+    ].filter(Boolean).join('<br>'),
+  }]
+  const adUnits = tAds.units || 0
+  const organicTile = !hasAds ? [] : [{
+    label: `Organischer Anteil · ${periodLabel}`,
+    value: cur.units > 0 ? `${nf.format(Math.round(organicUnits(cur.units, adUnits) / cur.units * 100))} %` : '–',
+    sub: cur.units > 0
+      ? `${fmtNum(organicUnits(cur.units, adUnits))} organisch · ${fmtNum(Math.min(adUnits, cur.units))} über Werbung<br><span class="muted small">Werbe-Einheiten laut Amazon Ads (14 Tage nach Klick)</span>`
+      : 'noch keine Verkäufe im Zeitraum',
+  }]
   const adTiles = !hasAds ? [] : [
     {
       label: `Werbekosten · ${periodLabel}`, value: money(ads.spend, ads.currency),
@@ -317,6 +402,8 @@ function renderKpis() {
       sub: [prev ? deltaHtml(cur.eur - prevEur, { fmt: (v) => money(v) }) + vsPrev : '', rt.rest, fxNote].filter(Boolean).join('<br>'),
     },
     ...adTiles,
+    ...tacosTile,
+    ...organicTile,
     ...bestCampaignTiles(periodLabel),
     {
       label: 'Rezensionen gesamt', value: fmtNum(totalReviews),
@@ -373,9 +460,29 @@ function renderTable() {
     salesByBook.get(asin).push(r)
   }
 
+  // Break-even aus allen importierten Verkäufen (Marge ist über die Zeit stabil), 7 Tage vs. Vorwoche unabhängig vom Zeitraum
+  const byBookAll = new Map()
+  const week = new Map()
+  const w1 = isoDay(Date.now() - 6 * DAY)
+  const w0 = isoDay(Date.now() - 13 * DAY)
+  for (const r of state.data.sales) {
+    const asin = owner.get(r.id)
+    if (!asin) continue
+    if (!byBookAll.has(asin)) byBookAll.set(asin, [])
+    byBookAll.get(asin).push(r)
+    if (state.marketplace !== 'all' && r.marketplace !== state.marketplace) continue
+    if (r.date < w0) continue
+    const w = week.get(asin) || { now: 0, prev: 0 }
+    if (r.date >= w1) w.now += r.units
+    else w.prev += r.units
+    week.set(asin, w)
+  }
+
   const adsBook = adsByBook()
   $('#books-table tbody').innerHTML = books.map((b, i) => {
     const a = adsBook.has(b.asin) ? sumAds(adsBook.get(b.asin)) : null
+    const be = breakEven(sumSales(byBookAll.get(b.asin) || []))
+    const w = week.get(b.asin) || { now: 0, prev: 0 }
     const l = latestOf(b.asin) || {}
     const st = status[b.asin] || {}
     const d24 = snapshotBefore(b.asin, 20 * 3600 * 1000)
@@ -396,12 +503,16 @@ function renderTable() {
       <td class="num">${fmtNum(l.reviews)}<br>${d7 && l.reviews != null && d7.reviews != null ? `<span class="nowrap">${deltaHtml(l.reviews - d7.reviews)} <span class="muted small">7 T.</span></span>` : ''}</td>
       <td class="num"><strong>${l.bsr ? '#' + fmtNum(l.bsr) : '–'}</strong><br>${d24 && l.bsr && d24.bsr ? `<span class="nowrap">${deltaHtml(l.bsr - d24.bsr, { goodWhenNegative: true })} <span class="muted small">24 h</span></span>` : ''}</td>
       <td class="cat">${top ? `#${fmtNum(top.rank)} in ${esc(top.category)}` : '–'}</td>
-      <td class="num">${fmtNum(s.units)}</td>
+      <td class="num">${fmtNum(s.units)}${a && s.units > 0 ? `<br><span class="muted small nowrap" title="Organisch = Einheiten laut KDP minus Einheiten über Werbeklicks">${fmtNum(organicUnits(s.units, a.units))} org. · ${fmtNum(Math.min(a.units, s.units))} Werb.</span>` : ''}</td>
+      <td class="num">${fmtNum(w.now)}<br><span class="nowrap" title="letzte 7 Tage ggü. den 7 Tagen davor (${fmtNum(w.prev)})">${deltaHtml(w.now - w.prev)} <span class="muted small">Vorw.</span></span></td>
       <td class="num">${fmtNum(s.kenp)}</td>
       <td class="num">${rt.main}${rt.rest ? `<br><span class="muted small nowrap">${rt.rest}</span>` : ''}</td>
       <td class="num">${a ? `${fmtNum(a.impressions)}<br><span class="muted small nowrap">${fmtNum(a.clicks)} Klicks · CTR ${pct(ctr(a))}</span>` : '–'}</td>
       <td class="num">${a ? moneyEur(a.spend, a.currency) : '–'}</td>
-      <td class="num">${a ? acosText(a) : '–'}</td>
+      <td class="num">${a ? acosVsBreakEven(a, be) : '–'}</td>
+      <td class="num">${be != null ? pct(be) : '–'}</td>
+      <td class="num">${a ? tacosText(a.spendEur, s.revenueEur) : '–'}</td>
+      <td class="num">${a ? `<span class="${s.eur - a.spendEur >= 0 ? 'good' : 'bad'}">${money(s.eur - a.spendEur)}</span>` : '–'}</td>
       <td><span class="small">${rel(st.lastSuccess)}</span>${st.lastError ? `<br><span class="status-err" title="${esc(st.lastError)}">⚠ ${esc(shortError(st.lastError))}</span>` : ''}${st.queued ? '<br><span class="muted small">⏳ wird im Hintergrund erneut versucht</span>' : ''}</td>
       <td><button class="btn icon" data-edit="${b.asin}" title="Bearbeiten" aria-label="Bearbeiten">✎</button><button class="btn icon" data-del="${b.asin}" title="Entfernen" aria-label="Entfernen">✕</button></td>
     </tr>`
