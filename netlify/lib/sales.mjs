@@ -15,6 +15,8 @@ export function sanitizeRow(r) {
     kenp: num(r.kenp),
     royalty: num(r.royalty),
     currency: String(r.currency || '').slice(0, 5).toUpperCase(),
+    // Umsatz ohne Steuer (Einheiten × Ø Angebotspreis); fehlt bei älteren Importen
+    ...(r.revenue != null && Number.isFinite(Number(r.revenue)) ? { revenue: Number(r.revenue) } : {}),
   }
 }
 

@@ -66,6 +66,22 @@ neueste `Sponsored_Products*.xlsx` aus dem Google-Drive-Ordner (dafür Apps Scri
   Bücher-Tabelle.
 - Die Kennzahl **„Ergebnis nach Werbung“** ist Tantiemen (EUR) minus Werbekosten im gewählten Zeitraum.
 
+### Kennzahlen und Formeln
+
+| Kennzahl | Formel | Wo |
+|---|---|---|
+| **Umsatz** | Netto verkaufte Einheiten × *Ø Angebotspreis ohne Steuer* aus dem KDP-Bericht (fehlt er: *Ø Listenpreis ohne Steuer*). KENP zählt mit seinen Tantiemen. USD → EUR zum EZB-Kurs. | Basis für TACoS und Break-even |
+| **TACoS** | Werbekosten ÷ Gesamtumsatz (organisch + Werbung) | Kachel (gesamt, darunter 🇩🇪 DE / 🇺🇸 US) und Spalte je Buch |
+| **Break-even-ACOS** | Tantiemen ÷ Umsatz je verkauftem Exemplar (= Marge in %), aus allen importierten Verkäufen des Buchs | Spalte je Buch; der ACOS daneben ist grün, wenn er darunter liegt, rot, wenn darüber |
+| **Ergebnis** | Tantiemen − Werbekosten (EUR) im Zeitraum | Kachel gesamt und Spalte je Buch |
+| **Organischer Anteil** | (Einheiten laut KDP − Einheiten über Werbeklicks laut Amazon Ads) ÷ Einheiten | Kachel; je Buch unter „Einheiten“ |
+| **7 Tage** | Einheiten der letzten 7 Tage, Pfeil ggü. den 7 Tagen davor (unabhängig vom gewählten Zeitraum) | Spalte je Buch |
+
+Hinweise: Werbeumsätze und Werbe-Einheiten rechnet Amazon Ads 14 Tage nach dem Klick zu, KDP nach Tantiemendatum. Organisch/Werbung
+ist deshalb eine Näherung. KDP-Zeilen, die vor Einführung der Preisspalte importiert wurden, haben keinen Umsatz gespeichert. Für sie
+schätzt das Dashboard den Umsatz mit dem aktuellen Amazon-Preis der Ausgabe (amazon.de ohne 7 % MwSt.) und zeigt den geschätzten Anteil
+in der TACoS-Kachel an. Ein erneuter Import des Zeitraums ersetzt die Schätzung durch die echten Werte.
+
 ## Bücher auf amazon.com (USD)
 
 - Beim Hinzufügen (**+ Buch**) oder Bearbeiten (✎) den **Marktplatz** wählen: *amazon.de* oder *amazon.com*. Preis, Bewertungen und BSR
