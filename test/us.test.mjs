@@ -94,3 +94,30 @@ test('US-Werbebericht: Währung aus Spalte oder aus „($)“ im Spaltennamen', 
   assert.equal(withSymbol.rows[0].currency, 'USD')
   assert.equal(withSymbol.rows[0].matchType, 'AUTO')
 })
+
+test('US-Werbebericht als CSV aus der deutschen Konsole: Datum TT.MM., Kampagne mit [US]', async () => {
+  const { readSheets } = await import('../netlify/lib/drive-import.mjs')
+  const csv = '﻿Datum,Portfolio-ID,Portfolioname,Währung des Budgets,Kampagnen-ID,Kampagnenname,Land der Kampagne,Targeting,Übereinstimmungstyp für Targeting,Impressions,Klicks,CTR,CPC,Gesamtkosten,ROAS durch Klicks,Verkäufe,KENP-Lesestatistik,Käufe,Durch Klicks verkaufte Einheiten\n' +
+    '10.11.2026,-1,No Portfolio,USD,"=""161655117992275""",JuniorDoku / Kampage C,US,close-match,TARGETING_EXPRESSION_PREDEFINED,1200,3,0.25%,0.50,1.50000,,11.99,0,1,1\n'
+  const { rows } = parseAdsWorkbook(readSheets(Buffer.from(csv), 'Sponsored_Products_Targeting_Bericht_US.csv'))
+  assert.equal(rows.length, 1)
+  assert.deepEqual(
+    { date: rows[0].date, campaign: rows[0].campaign, portfolio: rows[0].portfolio, currency: rows[0].currency, spend: rows[0].spend, sales: rows[0].sales, impressions: rows[0].impressions },
+    { date: '2026-11-10', campaign: 'JuniorDoku / Kampage C [US]', portfolio: 'No Portfolio', currency: 'USD', spend: 1.5, sales: 11.99, impressions: 1200 },
+  )
+})
+
+test('Apps Script: US-Dateien werden getrennt vom DE-Werbebericht gefunden', async () => {
+  const fs = await import('node:fs')
+  const vm = await import('node:vm')
+  const ctx = {}
+  vm.runInNewContext(fs.readFileSync(new URL('../google-apps-script/KDP_Dashboard_Export.gs', import.meta.url), 'utf8') + '\nthis.matches = matches', ctx)
+  const m = ctx.matches
+  assert.equal(m('Sponsored_Products_Targeting_Bericht_US.csv', 'US_Sponsored_Products'), true)
+  assert.equal(m('US_Sponsored_Products_Targeting.xlsx', 'US_Sponsored_Products'), true)
+  assert.equal(m('Sponsored_Products_Targeting_Bericht.xlsx', 'US_Sponsored_Products'), false)
+  assert.equal(m('Sponsored_Products_Targeting_Bericht.xlsx', 'Sponsored_Products'), true)
+  assert.equal(m('Sponsored_Products_Targeting_Bericht_US.csv', 'Sponsored_Products'), false)
+  assert.equal(m('KDP_Dashboard-123.xlsx', 'KDP_Dashboard'), true)
+  assert.equal(m('KDP_Dashboard-123.pdf', 'KDP_Dashboard'), false)
+})

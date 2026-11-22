@@ -12,7 +12,7 @@ const FOLDER_ID = '1QqhLbM0RAVXXT2pcFqCNRViYkGVZEeRA'
 // Erlaubte Dateiarten (Parameter „prefix“), die erste ist der Standard
 const PREFIXES = ['KDP_Dashboard', 'Sponsored_Products', 'US_Sponsored_Products']
 const TOKEN = 'HIER-EIN-LANGES-GEHEIMNIS-EINTRAGEN'
-const SCRIPT_VERSION = 4
+const SCRIPT_VERSION = 5
 
 function doGet(e) {
   const params = (e && e.parameter) || {}
@@ -39,7 +39,7 @@ function doGet(e) {
   while (files.hasNext()) {
     const f = files.next()
     const name = f.getName()
-    if (name.indexOf(prefix) !== 0 || !/\.xlsx$/i.test(name) || f.isTrashed()) continue
+    if (!matches(name, prefix) || f.isTrashed()) continue
     if (!latest || f.getLastUpdated() > latest.getLastUpdated()) latest = f
   }
   if (!latest) return json({ notFound: true, prefix, scriptVersion: SCRIPT_VERSION, error: `Keine ${prefix}*.xlsx im Ordner gefunden` })
@@ -50,6 +50,18 @@ function doGet(e) {
     return json(Object.assign({ unchanged: true }, meta))
   }
   return json(Object.assign({ data: Utilities.base64Encode(latest.getBlob().getBytes()) }, meta))
+}
+
+// US-Werbeberichte: „US_Sponsored_Products…“ oder „Sponsored_Products…_US.csv/.xlsx“
+function isUs(name) {
+  return /^US_/i.test(name) || /_US\.(xlsx|csv)$/i.test(name)
+}
+
+function matches(name, prefix) {
+  if (!/\.(xlsx|csv)$/i.test(name)) return false
+  if (prefix === 'US_Sponsored_Products') return isUs(name) && name.replace(/^US_/i, '').indexOf('Sponsored_Products') === 0
+  if (prefix === 'Sponsored_Products') return name.indexOf(prefix) === 0 && !isUs(name)
+  return name.indexOf(prefix) === 0
 }
 
 function json(obj) {
