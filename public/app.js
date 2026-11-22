@@ -505,7 +505,7 @@ function renderTable() {
       <td class="cat">${top ? `#${fmtNum(top.rank)} in ${esc(top.category)}` : '–'}</td>
       <td class="num">${fmtNum(s.units)}${a && s.units > 0 ? `<br><span class="muted small nowrap" title="Organisch = Einheiten laut KDP minus Einheiten über Werbeklicks">${fmtNum(organicUnits(s.units, a.units))} org. · ${fmtNum(Math.min(a.units, s.units))} Werb.</span>` : ''}</td>
       <td class="num">${fmtNum(w.now)}<br><span class="nowrap" title="letzte 7 Tage ggü. den 7 Tagen davor (${fmtNum(w.prev)})">${deltaHtml(w.now - w.prev)} <span class="muted small">Vorw.</span></span></td>
-      <td class="num">${fmtNum(s.kenp)}</td>
+      <td class="num">${nf1.format(w.now / 7)}<br><span class="nowrap" title="Ø der 7 Tage davor: ${nf1.format(w.prev / 7)}">${deltaHtml((w.now - w.prev) / 7, { fmt: (v) => nf1.format(v) })} <span class="muted small">Vorw.</span></span></td>
       <td class="num">${rt.main}${rt.rest ? `<br><span class="muted small nowrap">${rt.rest}</span>` : ''}</td>
       <td class="num">${a ? `${fmtNum(a.impressions)}<br><span class="muted small nowrap">${fmtNum(a.clicks)} Klicks · CTR ${pct(ctr(a))}</span>` : '–'}</td>
       <td class="num">${a ? moneyEur(a.spend, a.currency) : '–'}</td>

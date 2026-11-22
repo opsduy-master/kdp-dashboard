@@ -76,6 +76,7 @@ neueste `Sponsored_Products*.xlsx` aus dem Google-Drive-Ordner (dafür Apps Scri
 | **Ergebnis** | Tantiemen − Werbekosten (EUR) im Zeitraum | Kachel gesamt und Spalte je Buch |
 | **Organischer Anteil** | (Einheiten laut KDP − Einheiten über Werbeklicks laut Amazon Ads) ÷ Einheiten | Kachel; je Buch unter „Einheiten“ |
 | **7 Tage** | Einheiten der letzten 7 Tage, Pfeil ggü. den 7 Tagen davor (unabhängig vom gewählten Zeitraum) | Spalte je Buch |
+| **Ø / Tag (7 T.)** | Einheiten der letzten 7 Tage ÷ 7, Pfeil ggü. dem Ø der 7 Tage davor | Spalte je Buch (ersetzt die KENP-Spalte) |
 
 Hinweise: Werbeumsätze und Werbe-Einheiten rechnet Amazon Ads 14 Tage nach dem Klick zu, KDP nach Tantiemendatum. Organisch/Werbung
 ist deshalb eine Näherung. KDP-Zeilen, die vor Einführung der Preisspalte importiert wurden, haben keinen Umsatz gespeichert. Für sie
